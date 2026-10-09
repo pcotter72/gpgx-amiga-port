@@ -244,7 +244,7 @@ static unsigned short read_lowlevel_joy(int port)
     /* Check controller type for button mapping */
     if (joytype == JP_TYPE_GAMECTLR)
     {
-        /* CD32 controller — matches Genesis 6-button layout */
+        /* CD32 controller - matches Genesis 6-button layout */
         if (joy & JPF_BUTTON_RED)     state |= INPUT_BTN_A;     /* Red     = A */
         if (joy & JPF_BUTTON_BLUE)    state |= INPUT_BTN_B;     /* Blue    = B */
         if (joy & JPF_BUTTON_GREEN)   state |= INPUT_BTN_C;     /* Green   = C */

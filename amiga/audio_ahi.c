@@ -13,7 +13,7 @@
  *
  *  Solution: NEVER block. Use a ring of buffers. Collect completed
  *  requests via GetMsg (non-blocking). If no buffer is free, drop the
- *  audio frame — the emulation keeps running at full speed. Use
+ *  audio frame - the emulation keeps running at full speed. Use
  *  ahir_Link to chain consecutive requests for gapless playback.
  *
  *  The frame timer in main.c controls emulation speed, not audio.
@@ -59,7 +59,7 @@ static int ahi_total = 0;            /* Total frames submitted */
 static int ahi_initialized = 0;
 static int ahi_frequency = 44100;
 
-/* Buffer margin — extra samples appended after each frame's audio.
+/* Buffer margin - extra samples appended after each frame's audio.
  * 0   = exact frame size: no queue build-up on WinUAE / accurate timers.
  * 220 = ~4.99ms at 44100Hz: prevents ahir_Link chain breaks on PiStorm/Emu68
  *       where timer.device can fire up to 5ms late.
@@ -134,7 +134,7 @@ int ahi_audio_init(int frequency, int stereo, int is_pal)
     /* Buffer size: 1 frame of audio + optional margin.
      * Must use correct fps for PAL (50Hz) vs NTSC (60Hz).
      * PAL frames generate 882 samples at 44100Hz; NTSC generates 735.
-     * Hardcoding /60 on a PAL ROM truncates 131 samples per frame → crackling.
+     * Hardcoding /60 on a PAL ROM truncates 131 samples per frame -> crackling.
      *
      * ahi_margin controls the extra samples:
      *   0   = exact frame size. Each buffer lasts exactly one frame (16.67ms NTSC
@@ -148,7 +148,7 @@ int ahi_audio_init(int frequency, int stereo, int is_pal)
      * samples. The audio queue grows by (margin/frequency) seconds per frame and
      * fills all AHI_NUM_BUFFERS slots in ~(AHI_NUM_BUFFERS * frequency / margin)
      * frames, after which ~1 in every (frequency/margin + 1) frames is silently
-     * dropped. With margin=220 and 3 buffers this is ~25% drops — perceived as
+     * dropped. With margin=220 and 3 buffers this is ~25% drops - perceived as
      * a 15Hz amplitude trembling. Use margin=0 unless on PiStorm/Emu68. */
     fps = is_pal ? 50 : 60;
     samples_per_frame = (frequency + fps - 1) / fps;

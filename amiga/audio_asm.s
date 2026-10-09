@@ -348,15 +348,15 @@ _ConvertStereo8_asm:
  *                        signed char *dst_rhi, signed char *dst_rlo,
  *                        int samples, int boost)
  *
- * No lookup tables — direct arithmetic conversion.
+ * No lookup tables - direct arithmetic conversion.
  * For each stereo pair (L, R):
- *   1. Sign-extend 16→32 bits
+ *   1. Sign-extend 16->32 bits
  *   2. Logical left shift by boost (0..4)
  *   3. Clamp to -32768..32767
  *   4. HI = bits 15..8 (stored as signed byte, played at volume 64)
  *   5. LO = bits 7..2  (0..63, played at volume 1)
  *
- * No EA-index addressing → no ALU→EA pipeline stalls.
+ * No EA-index addressing -> no ALU->EA pipeline stalls.
  *
  * Register save: d2-d4/a2-a4 = 6 regs = 24 bytes
  * Stack layout (after 24-byte save + 4-byte return = 28 bytes offset):
@@ -418,10 +418,10 @@ _Convert14Bit_asm:
 
 	/* Store L: HI = bits 15..8, LO = bits 7..2 */
 	movel	%d1,%d3
-	lsrw	#8,%d3			/* unsigned >>8 → high byte of word in low byte */
+	lsrw	#8,%d3			/* unsigned >>8 -> high byte of word in low byte */
 	moveb	%d3,%a1@+		/* dst_lhi */
 	moveb	%d1,%d3			/* low byte */
-	lsrb	#2,%d3			/* >> 2 → range 0..63 */
+	lsrb	#2,%d3			/* >> 2 -> range 0..63 */
 	moveb	%d3,%a2@+		/* dst_llo */
 
 	/* Store R: HI and LO */

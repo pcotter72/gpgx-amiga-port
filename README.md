@@ -8,7 +8,7 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - Master System and Game Gear emulation
 - ZIP ROM loading (archives extracted in memory via miniz)
 - 32-bit BGRA CyberGraphX/P96 RTG video output (VideoCore native format)
-- Optional 16-bit RTG output (`screendepth=16`) — half the blit bandwidth,
+- Optional 16-bit RTG output (`screendepth=16`) - half the blit bandwidth,
   direct RGB565 row copy on native screens; ideal for classic Zorro RTG cards
 - Optional 2x scaling with configurable scanline effects
 - VSync support for reduced tearing
@@ -17,7 +17,7 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - Post-blip volume boost for louder 8-bit output without resampler distortion
 - 14-bit Paula calibration support (auto-loads from ENV:CyberSound/SoundDrivers/14Bit_Calibration)
 - Configurable sample rates for all audio backends
-- Configurable synthesis quality (`hqfm`/`hqpsg`) — linear mode is a large
+- Configurable synthesis quality (`hqfm`/`hqpsg`) - linear mode is a large
   CPU saving on slow machines (Pi 3, real 68030)
 - **Non-blocking Paula audio** with quad-buffer ring
 - Non-blocking AHI audio with ring buffer (zero-drop at 60fps)
@@ -44,8 +44,8 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
   the Pi 3 is too slow to emulate the Genesis sound chips at full speed.
 
 ### Tested Configurations
-- Amiga 1200 + PiStorm32-Lite + CM4 (Emu68) — **full speed with sound**
-- Amiga 500/2000 + PiStorm + Pi 3A+ (Emu68) — **video only, use -nosound**
+- Amiga 1200 + PiStorm32-Lite + CM4 (Emu68) - **full speed with sound**
+- Amiga 500/2000 + PiStorm + Pi 3A+ (Emu68) - **video only, use -nosound**
 
 ### Build Requirements
 - bebbo's amiga-gcc cross-compiler (GCC 6.5+)
@@ -73,7 +73,7 @@ make clean
 make USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
 ```
 
-> **Note:** Incremental builds must repeat the same flag set — `make` cannot
+> **Note:** Incremental builds must repeat the same flag set - `make` cannot
 > detect `-D` flag changes in existing object files.
 
 ### Build Options
@@ -188,10 +188,10 @@ Frequencies above ~28600 Hz (period < 124) require RTG-only display modes where 
 | Arrow Keys | D-Pad | D-Pad |
 | 1 | A | Button 1 |
 | 2 | B | Button 2 |
-| 3 | C | — |
-| Q | X (6-button) | — |
-| W | Y (6-button) | — |
-| E | Z (6-button) | — |
+| 3 | C | - |
+| Q | X (6-button) | - |
+| W | Y (6-button) | - |
+| E | Z (6-button) | - |
 | Space / Enter | Start | Start (GG only) |
 | Escape | Quit | Quit |
 
@@ -214,10 +214,10 @@ A second joystick/CD32 pad in the mouse port also controls player 2.
 | D-Pad | D-Pad | D-Pad |
 | Blue | A | Button 1 |
 | Red | B | Button 2 |
-| Green | C | — |
-| Yellow | Y | — |
+| Green | C | - |
+| Yellow | Y | - |
 | Play/Forward | Start | Start (GG only) |
-| Reverse | Mode | — |
+| Reverse | Mode | - |
 
 ### Hotkeys
 | Key | Action |
@@ -264,9 +264,9 @@ Only entries with `enable = true` are applied when the ROM loads.
 | GameShark / Action Replay | `009A64:0009` | `AAAAAA:DDDD` hex address:data |
 
 Codes are applied as:
-- **ROM patches**: even addresses within ROM range — written once at load time
-- **RAM patches**: addresses in Genesis work RAM range ($E00000+) — reapplied every frame since games reset RAM values each frame
-- **Master codes**: odd addresses (lock-on protection) — silently skipped, not needed
+- **ROM patches**: even addresses within ROM range - written once at load time
+- **RAM patches**: addresses in Genesis work RAM range ($E00000+) - reapplied every frame since games reset RAM values each frame
+- **Master codes**: odd addresses (lock-on protection) - silently skipped, not needed
 
 ### Finding Cheat Files
 
@@ -412,9 +412,9 @@ The codebase uses C89/gnu89 (`-std=gnu89`) as required for AmigaOS idiomatic cod
 The emulated Genesis audio runs within spec. The relevant clock chain:
 
 - **Paula clock**: PAL Amiga 3,546,895 Hz / period 86 = **41,242.97 Hz** actual output
-- **Config value** (`paulafreq=41243`): integer truncation gives 41,242 Hz → **0.0024% error**
-- **blip_buf resampling**: Genesis master clock 53,693,175 Hz resampled to 41,242 Hz; the internal fixed-point ratio is ceiling-rounded → **+0.0013% additional pitch shift**
-- **Total pitch error**: < **0.003%** — well within spec, absorbed by the 200-sample buffer margin
+- **Config value** (`paulafreq=41243`): integer truncation gives 41,242 Hz -> **0.0024% error**
+- **blip_buf resampling**: Genesis master clock 53,693,175 Hz resampled to 41,242 Hz; the internal fixed-point ratio is ceiling-rounded -> **+0.0013% additional pitch shift**
+- **Total pitch error**: < **0.003%** - well within spec, absorbed by the 200-sample buffer margin
 
 PSG tone accuracy follows Genesis hardware: the PSG runs from the same master clock and its tone divisors are integer, so pitch errors are hardware-accurate.
 
@@ -435,7 +435,7 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - [x] Non-blocking Paula audio with quad-buffer ring
 - [x] MUI launcher GUI with ROM browser and full config editor (`build.bat launcher`)
 - [x] EClock hybrid frame timer (sub-millisecond accuracy, eliminates PiStorm timer jitter)
-- [x] Per-section profiling (input/emu/audio/video µs breakdown, printed every 300 frames)
+- [x] Per-section profiling (input/emu/audio/video us breakdown, printed every 300 frames)
 - [x] LTO enabled by default (whole-program optimisation across all C translation units)
 - [ ] blip_mix_samples ASM (for future Sega CD support, currently NO_SCD)
 - [x] Cheat code support via RetroArch `.cht` files (Game Genie + GameShark/AR, ROM + RAM patches)
@@ -447,10 +447,10 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 ### v1.6 (06.07.2026)
 
 **Fixed:**
-- **Player 2 input now works** — button state was written to the wrong core
+- **Player 2 input now works** - button state was written to the wrong core
   device slot (`input.pad[1]` instead of `input.pad[4]`) since the first
   release; keyboard/numpad and mouse-port joystick both control player 2 now
-- AHI buffer sized without blip_buf rounding headroom — 1-2 samples were
+- AHI buffer sized without blip_buf rounding headroom - 1-2 samples were
   silently dropped nearly every frame (small waveform skip at each buffer
   boundary)
 - 8-bit audio converters (ASM and C) now round-to-nearest consistently
@@ -464,10 +464,10 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
   instead of generating audio that is never played
 
 **New:**
-- `screendepth=16` — 16-bit RTG output: half the blit bandwidth of the
+- `screendepth=16` - 16-bit RTG output: half the blit bandwidth of the
   32-bit path, direct RGB565 row copy on native-format screens; all eight
   15/16-bit CGX pixel formats supported, safe fallback to 32-bit
-- `hqfm` / `hqpsg` — sound synthesis quality knobs; `hqfm=0` switches the
+- `hqfm` / `hqpsg` - sound synthesis quality knobs; `hqfm=0` switches the
   YM2612 to linear resampling, a large CPU saving for Pi 3 / real 68030
 - Launcher GUI now exposes every config setting, including the previously
   file-only buffer margins, plus the new screen depth and HQ audio options

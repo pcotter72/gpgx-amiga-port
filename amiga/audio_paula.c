@@ -170,13 +170,13 @@ int paula_audio_init(int frequency, int hw_pal, int game_pal)
      *   4.5          = blip_buf rounding (occasionally produces 1-4 extra samples)
      *   paula_margin = timer latency margin (see paula_set_margin())
      *
-     * Default (margin=0): buffer ≈ samples_per_frame + 4.5 ≈ 692 samples (NTSC,
-     * 41242Hz) = 16.78ms. Minimal excess (0.11ms/frame) → queue fills in ~610 frames
+     * Default (margin=0): buffer ~ samples_per_frame + 4.5 ~ 692 samples (NTSC,
+     * 41242Hz) = 16.78ms. Minimal excess (0.11ms/frame) -> queue fills in ~610 frames
      * (~10s) causing one silent drop, then resets. Inaudible.
      *
      * margin=200: 892 samples (NTSC) = 21.62ms. For PiStorm/Emu68 where timer.device
      * spikes to >5ms late. WARNING: excess of 4.96ms/frame fills 4-buffer queue in
-     * ~17 frames, then drops ~22% of audio frames → audible 15Hz trembling.
+     * ~17 frames, then drops ~22% of audio frames -> audible 15Hz trembling.
      * Only use on PiStorm/Emu68. */
     samples_per_frame = (double)paula_freq / fps_exact;
     paula_buflen = (ULONG)(samples_per_frame + 4.5 + (double)paula_margin);

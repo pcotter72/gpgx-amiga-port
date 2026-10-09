@@ -945,7 +945,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
 
     if (!d->app) return NULL;
 
-    /* Window close → cancel */
+    /* Window close -> cancel */
     DoMethod(win, MUIM_Notify, MUIA_Window_CloseRequest, TRUE,
              d->app, 2, MUIM_Application_ReturnID, ID_CANCEL);
 
@@ -983,7 +983,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
     return d->app;
 }
 
-/* ---- Collect widgets → Config ---- */
+/* ---- Collect widgets -> Config ---- */
 static void collect(struct AppData *d, Config *c)
 {
     ULONG val;
@@ -1084,7 +1084,7 @@ int main(void)
 
     /* Resolve our directory to an absolute path now.
      * Execute() spawns a new shell whose PROGDIR: is the shell's own dir,
-     * not ours — so we must use an absolute path when launching the emulator. */
+     * not ours - so we must use an absolute path when launching the emulator. */
     {
         BPTR plock = GetProgramDir();
         int len;
@@ -1098,7 +1098,7 @@ int main(void)
     config_load(&c);
     do_scan();
 
-    /* Initialise display hook (HookEntry bridges 68k register ABI → C) */
+    /* Initialise display hook (HookEntry bridges 68k register ABI -> C) */
     memset(&disp_hook, 0, sizeof(disp_hook));
     disp_hook.h_Entry    = (HOOKFUNC)HookEntry;
     disp_hook.h_SubEntry = (HOOKFUNC)disp_hook_func;
@@ -1179,7 +1179,7 @@ int main(void)
             }
 
             case ID_LAUNCH:
-                /* running stays TRUE — event loop continues after game exits */
+                /* running stays TRUE - event loop continues after game exits */
                 launch_game(&d, &c, progdir, cmd, sizeof(cmd));
                 break;
 

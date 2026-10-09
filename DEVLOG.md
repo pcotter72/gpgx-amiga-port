@@ -15,7 +15,7 @@ Severity 3: sprite data must be in CHIP ram
 
 **Root cause:** `blank_pointer[]` in `amiga/video_cgx.c:111` was declared as a plain
 `static UWORD[]`. bebbo's GCC places ordinary statics in BSS/data, which the linker
-maps to Fast RAM. The Amiga sprite DMA is custom chip DMA — it can only address Chip
+maps to Fast RAM. The Amiga sprite DMA is custom chip DMA - it can only address Chip
 RAM. `SetPointer()` hands the pointer directly to the hardware sprite registers;
 passing a Fast RAM address causes it to DMA garbage or nothing.
 
@@ -31,7 +31,7 @@ which the linker maps into Chip RAM.
 
 **Build note (Windows):** `make` with LTO (`-flto`) fails from Git Bash / MSYS2 because
 `COLLECT_LTO_WRAPPER` is not propagated into the GCC linker invocation. Use PowerShell
-to call `make` — it inherits the Windows environment correctly and LTO links cleanly.
+to call `make` - it inherits the Windows environment correctly and LTO links cleanly.
 
 ---
 

@@ -51,14 +51,14 @@ static UBYTE chan_mask_rhi[] = { 1 << CHAN_RHI };  /* 0x02 */
 static UBYTE chan_mask_rlo[] = { 1 << CHAN_RLO };  /* 0x04 */
 static UBYTE chan_mask_llo[] = { 1 << CHAN_LLO };  /* 0x08 */
 
-/* IO request arrays — one per buffer slot per channel */
+/* IO request arrays - one per buffer slot per channel */
 static struct MsgPort *paula14_port = NULL;
 static struct IOAudio *io_lhi[PAULA_NUM_BUFFERS];
 static struct IOAudio *io_llo[PAULA_NUM_BUFFERS];
 static struct IOAudio *io_rhi[PAULA_NUM_BUFFERS];
 static struct IOAudio *io_rlo[PAULA_NUM_BUFFERS];
 
-/* Chip RAM DMA buffers — one per slot per channel */
+/* Chip RAM DMA buffers - one per slot per channel */
 static BYTE *buf_lhi[PAULA_NUM_BUFFERS];
 static BYTE *buf_llo[PAULA_NUM_BUFFERS];
 static BYTE *buf_rhi[PAULA_NUM_BUFFERS];
@@ -309,7 +309,7 @@ void paula14_audio_shutdown(void)
 }
 
 /****************************************************************************
- * Availability — non-blocking poll
+ * Availability - non-blocking poll
  ****************************************************************************/
 int paula14_audio_available(void)
 {
@@ -327,7 +327,7 @@ int paula14_audio_available(void)
 }
 
 /****************************************************************************
- * Submit audio buffer — fully non-blocking
+ * Submit audio buffer - fully non-blocking
  ****************************************************************************/
 void paula14_audio_submit(signed short *buffer, int samples)
 {
@@ -462,7 +462,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
     irlo->ioa_Volume = 1;
     irlo->ioa_Cycles = 1;
 
-    /* All 4 channels start simultaneously — no phase drift */
+    /* All 4 channels start simultaneously - no phase drift */
     Disable();
     BeginIO((struct IORequest *)ilhi);
     BeginIO((struct IORequest *)illo);

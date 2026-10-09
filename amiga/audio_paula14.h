@@ -7,9 +7,9 @@
  *  but with all 4 Paula channels for the Buchner/Richter 14-bit technique:
  *
  *  Channel mapping:
- *  - AUD0 = Left HI  (volume 64)  \  combined on left DAC  → ~12-bit left
+ *  - AUD0 = Left HI  (volume 64)  \  combined on left DAC  -> ~12-bit left
  *  - AUD3 = Left LO  (volume  1)  /
- *  - AUD1 = Right HI (volume 64)  \  combined on right DAC → ~12-bit right
+ *  - AUD1 = Right HI (volume 64)  \  combined on right DAC -> ~12-bit right
  *  - AUD2 = Right LO (volume  1)  /
  *
  *  Formula: HI[n] = sample >> 8 (signed), LO[n] = (sample & 0xFF) >> 2

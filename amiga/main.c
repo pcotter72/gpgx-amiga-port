@@ -209,7 +209,7 @@ void osd_input_update(void)
     if (state & INPUT_BTN_RIGHT) input.pad[0] |= INPUT_RIGHT;  /* 0x0008 */
     if (system_hw < SYSTEM_MD)
     {
-        /* SMS/GG/SG-1000: 2-button pad — A=Button1, B=Button2, C=unused */
+        /* SMS/GG/SG-1000: 2-button pad - A=Button1, B=Button2, C=unused */
         if (state & INPUT_BTN_A) input.pad[0] |= INPUT_BUTTON1;
         if (state & INPUT_BTN_B) input.pad[0] |= INPUT_BUTTON2;
     }
@@ -236,7 +236,7 @@ void osd_input_update(void)
     if (state & INPUT_BTN_RIGHT) input.pad[4] |= INPUT_RIGHT;
     if (system_hw < SYSTEM_MD)
     {
-        /* SMS/GG/SG-1000: 2-button pad — A=Button1, B=Button2, C=unused */
+        /* SMS/GG/SG-1000: 2-button pad - A=Button1, B=Button2, C=unused */
         if (state & INPUT_BTN_A) input.pad[4] |= INPUT_BUTTON1;
         if (state & INPUT_BTN_B) input.pad[4] |= INPUT_BUTTON2;
     }
@@ -547,11 +547,11 @@ int load_archive(char *filename, unsigned char *buffer, int maxsize, char *exten
 }
 
 /****************************************************************************
- * Cheat system — loads PROGDIR:Cheats/<romname>.cht (RetroArch format)
+ * Cheat system - loads PROGDIR:Cheats/<romname>.cht (RetroArch format)
  *
  * Supports:
- *   - Game Genie (XXXX-XXXX)  → ROM patch (once) or RAM patch (per-frame)
- *   - GameShark/AR (AAAAAA:DDDD hex) → RAM patch (per-frame)
+ *   - Game Genie (XXXX-XXXX)  -> ROM patch (once) or RAM patch (per-frame)
+ *   - GameShark/AR (AAAAAA:DDDD hex) -> RAM patch (per-frame)
  *   - '+'-joined multi-code entries
  *
  * Only entries with enable = true are applied. Disabled by default.
@@ -622,9 +622,9 @@ static int gs_decode(const char *code, uint32 *addr, uint16 *data)
 }
 
 /* Route a decoded (addr, data) pair.
- * Even addr < cart.romsize → ROM patch (once).
- * addr >= $E00000          → RAM patch (per-frame via work_ram).
- * Odd addr                 → silently skip (master codes).
+ * Even addr < cart.romsize -> ROM patch (once).
+ * addr >= $E00000          -> RAM patch (per-frame via work_ram).
+ * Odd addr                 -> silently skip (master codes).
  * Returns 1 if handled, 0 if skipped. */
 static int route_patch(uint32 addr, uint16 data)
 {
@@ -652,7 +652,7 @@ static int route_patch(uint32 addr, uint16 data)
         }
         return 0;
     }
-    /* Odd address (master codes) or unmapped region — skip silently */
+    /* Odd address (master codes) or unmapped region - skip silently */
     return 0;
 }
 
@@ -871,7 +871,7 @@ static int timer_init(void)
     TimerBase = timer_req->tr_node.io_Device;
     timer_open = 1;
 
-    /* Cache EClock frequency — used by eclock_us_since() / timer_wait_frame() */
+    /* Cache EClock frequency - used by eclock_us_since() / timer_wait_frame() */
     {
         struct EClockVal ev;
         eclock_freq = ReadEClock(&ev);
@@ -934,7 +934,7 @@ static ULONG eclock_us_since(struct EClockVal *start)
 }
 
 /****************************************************************************
- * EClock elapsed time between two recorded EClockVal snapshots, in µs.
+ * EClock elapsed time between two recorded EClockVal snapshots, in us.
  ****************************************************************************/
 static ULONG eclock_diff_us(struct EClockVal *a, struct EClockVal *b)
 {
@@ -955,7 +955,7 @@ static ULONG eclock_diff_us(struct EClockVal *a, struct EClockVal *b)
  *
  * BUSYSPIN_US=3000: worst-case busy-spin = 3ms + 5ms jitter = 8ms.
  * In practice emulation consumes 12-15ms of a 16.67ms NTSC frame, leaving
- * 2-5ms remainder — so busy-spin is typically 0-3ms.
+ * 2-5ms remainder - so busy-spin is typically 0-3ms.
  * On WinUAE/accurate timers timer fires on time; busy-spin is ~0ms.
  ****************************************************************************/
 #define BUSYSPIN_US 3000
@@ -1429,7 +1429,7 @@ static void config_set_defaults(config_file_t *cfg)
     cfg->psgvol = 60; /* Combined FM+PSG: 60+60=120% peak. Rarely both at max simultaneously.
                        * Lower from 75 to 60 to reduce combined clipping on heavy scenes. */
     cfg->paulafilter = 0;
-    cfg->paulaboost = 1;  /* 1=2x boost: Sonic 1 peaks ~34% of 16-bit range → ~68% of 8-bit */
+    cfg->paulaboost = 1;  /* 1=2x boost: Sonic 1 peaks ~34% of 16-bit range -> ~68% of 8-bit */
                           /* 0=no boost leaves audio at only ~34% of 8-bit range (poor SNR) */
     cfg->paulastereo = 1;
     cfg->ahiboost = 0;    /* 0=no boost: with fmvol=60 16-bit signal is already at good level */
@@ -1880,7 +1880,7 @@ int main(int argc, char *argv[])
     paula_freq = cfg.paula_freq;
     frameskip = cfg.frameskip;
     use_autoskip = cfg.autoskip;
-    /* vsync: ChangeScreenBuffer blocks on VBL — that IS the frame clock.
+    /* vsync: ChangeScreenBuffer blocks on VBL - that IS the frame clock.
      * autoskip would see elapsed>=budget on every frame and skip half of them. */
     if (use_vsync) use_autoskip = 0;
     show_fps_counter = cfg.fps;
@@ -2118,7 +2118,7 @@ int main(int argc, char *argv[])
              * actual_freq = clock / period
              * IMPORTANT: Use the REAL Amiga hardware clock, not the
              * game's PAL/NTSC mode.  Paula's crystal is on the
-             * motherboard — it doesn't change with the game. */
+             * motherboard - it doesn't change with the game. */
             ULONG pclk = amiga_hw_pal ? 3546895UL : 3579545UL;
             UWORD pp = (UWORD)(pclk / (ULONG)paula_freq);
             if (pp < 80) pp = 80;
@@ -2297,11 +2297,11 @@ int main(int argc, char *argv[])
      *
      * CRITICAL: must be done HERE (not before init/SRAM load) because init
      * code takes ~100ms and the pre-fill buffers (~33ms each) would drain
-     * completely before the first real frame, leaving 0 queued → gap click.
+     * completely before the first real frame, leaving 0 queued -> gap click.
      *
      * With 2 pre-fills queued at T=0 and frame 1 submitting at T~8ms:
-     *   - pre-fill 1 still has 8ms to play → audio.device pre-loads shadow
-     *     registers for pre-fill 2 AND for frame 1 immediately → gapless. */
+     *   - pre-fill 1 still has 8ms to play -> audio.device pre-loads shadow
+     *     registers for pre-fill 2 AND for frame 1 immediately -> gapless. */
     if (!nosound)
     {
         int prime_samples;
@@ -2391,7 +2391,7 @@ int main(int argc, char *argv[])
             }
             else if (use_autoskip && frame_count > 0)
             {
-                /* Skip render if last frame was late — but never more than
+                /* Skip render if last frame was late - but never more than
                  * 4 consecutive skips (guarantees at least 12fps video on
                  * NTSC even when Pi 3 is fully over budget). */
                 if (skip_next_render && auto_skip_count < 4)
@@ -2508,8 +2508,8 @@ int main(int argc, char *argv[])
             /* Update FPS counter */
             video_cgx_update_fps();
 
-            /* Frame timing: EClock hybrid limiter — coarse timer.device sleep
-             * to yield CPU, then busy-spin the last BUSYSPIN_US µs. */
+            /* Frame timing: EClock hybrid limiter - coarse timer.device sleep
+             * to yield CPU, then busy-spin the last BUSYSPIN_US us. */
             {
                 ULONG elapsed_us = eclock_us_since(&ev_frame_start);
                 if (elapsed_us >= frame_time_us)

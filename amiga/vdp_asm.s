@@ -95,7 +95,7 @@ _draw_bg_columns_asm:
 
 .Lbgcol_loop:
 	| ------ Load nametable entry: atbuf = nt[index & col_mask] ------
-	| Pipeline note: lsl.l result used immediately as EA index → 1-cycle stall on 68030.
+	| Pipeline note: lsl.l result used immediately as EA index -> 1-cycle stall on 68030.
 	| Fix: slide addq.l #1,d6 (independent of d1) between the lsl and the load.
 	move.l	d6,d1
 	and.l	d7,d1			| d1 = index & col_mask
@@ -120,7 +120,7 @@ _draw_bg_columns_asm:
 	and.l	#0x1FFF,d3		| d3 = atbuf[28:16] = pattern_id_msb (0..8191)
 	lsl.l	#6,d3			| * 64 = byte base of tile row in pat_cache
 	or.l	d5,d3			| + v_line_b = final byte offset       [stall source: d3]
-	move.l	d4,d1			| PIPELINE BRIDGE: d4→d1 (overwritten below; fills stall slot)
+	move.l	d4,d1			| PIPELINE BRIDGE: d4->d1 (overwritten below; fills stall slot)
 	move.l	(a2,d3.l),d1		| pixels[0..3]; no stall (d3 written 1 instruction ago)
 	or.l	d2,d1
 	move.l	d1,(a0)+		| *dst++
@@ -144,7 +144,7 @@ _draw_bg_columns_asm:
 	and.l	#0x1FFF,d3		| d3 = atbuf[12:0] = pattern_id_lsb (0..8191)
 	lsl.l	#6,d3			| * 64 = byte base
 	or.l	d5,d3			| + v_line_b = byte offset             [stall source: d3]
-	move.l	d4,d1			| PIPELINE BRIDGE: d4→d1 (overwritten below; fills stall slot)
+	move.l	d4,d1			| PIPELINE BRIDGE: d4->d1 (overwritten below; fills stall slot)
 	move.l	(a2,d3.l),d1		| no stall (d3 written 1 instruction ago)
 	or.l	d2,d1
 	move.l	d1,(a0)+
@@ -207,7 +207,7 @@ _merge_pixels_asm:
 
 	| Pipeline fix: pre-zero d1 so the first iteration's move.b into d1 works
 	| correctly. The loop body ends with moveq #0,d1 which doubles as both the
-	| PIPELINE BRIDGE (fills the ALU→EA stall slot after or.w d1,d2) and the
+	| PIPELINE BRIDGE (fills the ALU->EA stall slot after or.w d1,d2) and the
 	| re-initialization of d1 for the next iteration's move.b load.
 	moveq	#0,d1			| pre-zero d1 for first iteration
 
@@ -241,12 +241,12 @@ _merge_pixels_asm:
  * src       = 1-byte-per-pixel indexed colour linebuffer
  * dst       = 2-byte-per-pixel RGB565 output (bitmap.data row)
  * pixel_tbl = uint16 palette table, 256 entries (512 bytes)
- * width     = number of pixels (320 or 256 — always even for Genesis/SMS)
+ * width     = number of pixels (320 or 256 - always even for Genesis/SMS)
  *
- * Optimisation: 2x unrolled loop using d1+d2 to eliminate the ALU→EA
+ * Optimisation: 2x unrolled loop using d1+d2 to eliminate the ALU->EA
  * pipeline stall on 68030. The original single-pixel loop had:
  *   add.l d1,d1  (writes d1)  followed immediately by
- *   move.w (a2,d1.l)          (uses d1 as EA index) → 1-cycle stall.
+ *   move.w (a2,d1.l)          (uses d1 as EA index) -> 1-cycle stall.
  * Fix: process two pixels per iteration. Pixel 2's `add.l d2,d2` bridges
  * pixel 1's stall; pixel 1's `move.w (a2,d1.l)` bridges pixel 2's stall.
  * Width is always even (320 mode5 / 256 mode4), so halving is exact.

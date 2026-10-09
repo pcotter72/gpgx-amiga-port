@@ -213,7 +213,7 @@ CFLAGS  += -DUSE_ASM_AUDIO -DUSE_ASM_VIDEO -DUSE_ASM_VDP
 
 # blip_buf inner loop ASM: opt-in for diagnostic purposes.
 # Enable with: make USE_ASM_BLIP=1
-# This was never present in the old build — enable once confirmed working.
+# This was never present in the old build - enable once confirmed working.
 ifdef USE_ASM_BLIP
 OBJECTS += amiga/blip_asm.o
 CFLAGS  += -DUSE_ASM_BLIP

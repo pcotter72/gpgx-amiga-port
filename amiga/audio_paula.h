@@ -36,8 +36,8 @@ int paula_audio_get_rate(void);
 void paula_set_volume_boost(int boost);
 
 /* Set buffer margin in extra samples beyond samples_per_frame.
- * 0   = exact frame size (WinUAE / any accurate timer — no queue buildup).
- * 200 = 4.85ms margin (PiStorm/Emu68 — prevents buffer underrun from timer jitter).
+ * 0   = exact frame size (WinUAE / any accurate timer - no queue buildup).
+ * 200 = 4.85ms margin (PiStorm/Emu68 - prevents buffer underrun from timer jitter).
  * Must be called before paula_audio_init(). */
 void paula_set_margin(int margin);
 
