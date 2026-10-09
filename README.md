@@ -479,6 +479,40 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 
 ## Changelog
 
+### v1.7 (09.10.2026)
+
+**Audio:**
+- Frames are paced against an absolute EClock schedule instead of a
+  relative delay per frame, so timer overshoot no longer accumulates
+- Audio buffers hold exactly one frame (odd-sample carry keeps the
+  length even) and the queue depth is rate-controlled around two
+  buffers; `audio_init` runs at exactly 60/50 Hz. No more gaps from
+  timer jitter. `paulamargin` / `ahimargin` are obsolete and ignored
+- 14-bit Paula: all four channels start in sync (CMD_STOP / CMD_START),
+  sign-symmetric HI/LO split, table-driven ASM converter
+- Exit summary: queue-depth histogram, dropped / ran-dry counts, rate
+  control, and a hint when Paula plays slower than its nominal rate
+
+**Video:**
+- Optional GPU output through PiStorm3D `minigl.library` 29.1 (Pi 4 /
+  CM4): any screen size, sharp / smooth / scanlines / composite blend.
+  CaffeineOS includes the library. Better picture, not faster (about
+  6 ms of CPU per frame)
+- Autoskip now skips only when more than half a frame behind
+- Exit summary: frame budget, over-budget count, schedule drift,
+  frames drawn
+
+**Launcher 1.2:**
+- Cheats page: tick entries of `PROGDIR:Cheats/<romname>.cht`
+- GPU Output settings on the Video tab
+- Obsolete buffer-margin sliders removed
+
+**Build / docs:**
+- `build.bat` judges success by the output file (the toolchain make
+  exits 0 on failure), cleans automatically when options change, and
+  builds GPU output in when the PiStorm3D SDK is present
+- Sources and docs are plain ASCII; GenesisPlusGX.readme rewritten
+
 ### v1.6 (06.07.2026)
 
 **Fixed:**

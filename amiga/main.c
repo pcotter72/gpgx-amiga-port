@@ -10,8 +10,8 @@
  ****************************************************************************/
 
 /* Version info */
-#define GPGX_VERSION  "1.6"
-#define GPGX_DATE     "06.07.2026"
+#define GPGX_VERSION  "1.7"
+#define GPGX_DATE     "09.10.2026"
 #define GPGX_AUTHOR   "Pedro Cotter"
 
 /* Standard AmigaOS version string - readable by C:Version command */
@@ -2068,6 +2068,8 @@ int main(int argc, char *argv[])
         printf("  -nocheats     Ignore the cheat file for this run\n");
         printf("\nPerformance options:\n");
         printf("  -frameskip=N  Skip N frames (1=50%%, 2=33%%, 3=25%% render)\n");
+        printf("  -autoskip     Skip drawing when behind schedule (default)\n");
+        printf("  -noautoskip   Never skip frames automatically\n");
         printf("  -fps          Show FPS counter in top-right corner\n");
 #ifdef USE_MINIGL
         printf("\nGL output (PiStorm3D / minigl.library 29, Pi 4/CM4 only):\n");

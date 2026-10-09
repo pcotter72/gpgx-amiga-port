@@ -7,7 +7,7 @@
     |_|
 
           Sega Genesis / Mega Drive Emulator for AmigaOS 3.x
-                    PiStorm / Emu68 Edition  v1.6
+                    PiStorm / Emu68 Edition  v1.7
           ___________________________________________________
 
 
@@ -29,16 +29,16 @@ CONTENTS
 ===========================================================================
 
   Copy GenesisPlusGX to a directory of your choice (e.g. Games:Emulators/).
-  Run it from Shell or use the MUI Launcher (GenesisPlusGX_Launcher).
+  Run it from Shell or use the MUI Launcher (GenesisPlusGX-Launcher).
 
   Shell:
     GenesisPlusGX rom.bin
 
   MUI Launcher:
-    Double-click GenesisPlusGX_Launcher, browse to your ROM, set options,
+    Double-click GenesisPlusGX-Launcher, browse to your ROM, set options,
     click Start.
 
-  Supported ROM formats:  .bin  .gen  .md  .smd  .sms  .gg  .zip
+  Supported ROM formats:  .bin .gen .md .smd .rom .sms .gg .sg .zip
   (ZIP archives are extracted in memory - no unpacking needed)
 
   The emulator auto-creates a config file (GenesisPlusGX.cfg) and a States/
@@ -90,6 +90,8 @@ CONTENTS
   PERFORMANCE OPTIONS
   -------------------
   -frameskip=N      Skip N frames (1=render every 2nd, 2=every 3rd, ...)
+  -autoskip         Skip drawing when behind schedule (default)
+  -noautoskip       Never skip frames automatically
   -fps              Show FPS counter in top-right corner
 
   EXAMPLES
@@ -129,15 +131,18 @@ CONTENTS
   CD32 GAMEPAD (via lowlevel.library)
   ------------------------------------
   D-Pad               D-Pad
-  Blue                A  (SMS/GG: Button 1)
-  Red                 B  (SMS/GG: Button 2)
+  Red                 A  (SMS/GG: Button 1)
+  Blue                B  (SMS/GG: Button 2)
   Green               C
-  Yellow              Y
-  Play/Forward        Start
-  Reverse             Mode
+  Yellow              X
+  Reverse             Y
+  Forward             Z
+  Play                Start
+
+  A plain joystick gives A (fire 1) and B (fire 2).
 
   NOTE: For Master System and Game Gear games only Button 1 and Button 2
-  are active.  6-button keys, C, and Mode are unused.
+  are active.  6-button keys and C are unused.
 
   Button assignments can be remapped in the configuration file.
 
