@@ -1158,10 +1158,13 @@ static void close_libraries(void)
 
 /****************************************************************************
  * Paula hardware low-pass filter control via CIA-A
- * The Amiga has a built-in 12dB/octave Butterworth filter at ~3.3kHz
- * controlled by bit 1 of CIA-A PRA ($BFE001).
- * Bit 1 = 1: Power LED dim, filter ON
- * Bit 1 = 0: Power LED bright, filter OFF
+ * Bit 1 of CIA-A PRA ($BFE001) is /LED: "led light (0=bright)/audio filter
+ * control" (HRM Appendix F). Amiga Mail "Switching the audio filter":
+ * "ciaa.ciapra |= CIAF_LED; Force the filter off", and "When ON, the filter
+ * is about 3db at 7kHz". So:
+ * Bit 1 = 0: Power LED bright, filter ON
+ * Bit 1 = 1: Power LED dim, filter OFF
+ * Read-modify-write under Disable(), as in that example.
  ****************************************************************************/
 static int paula_filter_was_set = 0;
 static unsigned char paula_filter_original = 0;
@@ -1170,21 +1173,23 @@ static void set_paula_filter(int enable)
 {
     volatile unsigned char *ciaa_pra = (volatile unsigned char *)0xBFE001;
     
+    Disable();
     /* Save original state on first call so we can restore on exit */
     if (!paula_filter_was_set)
     {
         paula_filter_original = *ciaa_pra & 0x02;
         paula_filter_was_set = 1;
     }
-    
+
     if (enable)
     {
-        *ciaa_pra |= 0x02;   /* Set bit 1: filter ON, LED dim */
+        *ciaa_pra &= ~0x02;  /* Clear bit 1: filter ON, LED bright */
     }
     else
     {
-        *ciaa_pra &= ~0x02;  /* Clear bit 1: filter OFF, LED bright */
+        *ciaa_pra |= 0x02;   /* Set bit 1: filter OFF, LED dim */
     }
+    Enable();
 }
 
 static void restore_paula_filter(void)
@@ -1192,10 +1197,12 @@ static void restore_paula_filter(void)
     if (paula_filter_was_set)
     {
         volatile unsigned char *ciaa_pra = (volatile unsigned char *)0xBFE001;
+        Disable();
         if (paula_filter_original)
             *ciaa_pra |= 0x02;
         else
             *ciaa_pra &= ~0x02;
+        Enable();
         paula_filter_was_set = 0;
     }
 }
@@ -1932,6 +1939,8 @@ static void config_save_default(void)
             "; Lower fmvol if you hear distortion on loud games.\n"
             "fmvol=60\n"
             "psgvol=60\n"
+            "; paulafilter: 1=force the Amiga audio (LED) filter on (~7 kHz low-pass),\n"
+            ";   0=leave it as the system has it.\n"
             "paulafilter=0\n"
             "paulaboost=1\n"
             "paulastereo=1\n"
@@ -2062,7 +2071,7 @@ int main(int argc, char *argv[])
         printf("  -ahi          Use AHI audio (for sound cards)\n");
         printf("  -ahifreq=N    AHI sample rate: 22050, 27710, 32000, 44100 (config default: 44100)\n");
         printf("  -nosound      Disable audio (faster on slow machines)\n");
-        printf("  -paulafilter  Enable Amiga hardware low-pass filter (~3.3kHz)\n");
+        printf("  -paulafilter  Force the Amiga audio (LED) filter on (~7 kHz low-pass)\n");
         printf("\nCheat options (Mega Drive only, PROGDIR:Cheats/<romname>.cht):\n");
         printf("  -cheats       Apply the cheat file (default)\n");
         printf("  -nocheats     Ignore the cheat file for this run\n");

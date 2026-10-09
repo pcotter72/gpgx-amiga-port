@@ -178,7 +178,7 @@ The exit summary prints the measured `GL: upload` / `draw+present` times.
 | `-paulafreq=N` | Paula sample rate in Hz (default: 41243, up to 44100 in RTG) |
 | `-ahi` | Use AHI audio system (for sound cards, systems without Paula) |
 | `-ahifreq=N` | AHI sample rate: 22050, 27710, 32000, 44100 (default: 44100) |
-| `-paulafilter` | Enable Amiga hardware low-pass filter (LED filter, ~12kHz cutoff) |
+| `-paulafilter` | Force the Amiga audio (LED) filter on (~7 kHz low-pass) |
 | `-nosound` | Disable audio entirely (maximum speed) |
 
 Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `hqfm`, `hqpsg`, `screendepth`, `glout`, `gleffect`, `glsize` (see Configuration section).
@@ -341,7 +341,7 @@ fmvol=60
 # PSG volume: 10-200 (default: 60)
 psgvol=60
 
-# Paula hardware low-pass filter: 0=off, 1=on (LED filter, 12kHz cutoff)
+# Amiga audio (LED) filter, ~7 kHz low-pass: 1=force on, 0=leave as the system has it
 paulafilter=0
 
 # Paula volume boost: 0=1x, 1=2x (default), 2=4x, 3=8x
@@ -512,6 +512,11 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
   exits 0 on failure), cleans automatically when options change, and
   builds GPU output in when the PiStorm3D SDK is present
 - Sources and docs are plain ASCII; GenesisPlusGX.readme rewritten
+
+**Fixed:**
+- `paulafilter=1` / `-paulafilter` turned the audio (LED) filter *off*:
+  CIA-A PRA bit 1 = 1 means filter off (Amiga Mail). It now turns the
+  filter on, and the CIA bit is changed under `Disable()`
 
 ### v1.6 (06.07.2026)
 

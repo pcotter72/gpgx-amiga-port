@@ -84,7 +84,7 @@ CONTENTS
   -paulafreq=N      Paula sample rate in Hz (default 41243, max 44100)
   -ahi              AHI retargetable audio (use with sound cards)
   -ahifreq=N        AHI sample rate: 22050 / 27710 / 32000 / 44100
-  -paulafilter      Enable Amiga LED filter (~12 kHz low-pass)
+  -paulafilter      Force the Amiga audio (LED) filter on (~7 kHz)
   -nosound          Disable audio entirely (fastest)
 
   PERFORMANCE OPTIONS
@@ -279,7 +279,8 @@ CONTENTS
   paulastereo=1         Paula stereo (1) or mono (0)
   paulaboost=1          Volume boost: 0=1x  1=2x  2=4x  3=8x
   ahiboost=0            AHI volume boost (same scale)
-  paulafilter=0         LED low-pass filter: 0=off  1=on
+  paulafilter=0         Audio (LED) filter, ~7 kHz low-pass:
+                          1=force on  0=leave as the system has it
   fmvol=60              FM synth volume (10-100)
   psgvol=60             PSG volume (10-200)
   hqfm=1                FM quality: 1=band-limited  0=linear (much faster)

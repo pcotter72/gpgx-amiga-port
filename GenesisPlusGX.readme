@@ -62,7 +62,7 @@ Usage
     -paulafreq=N    Paula rate in Hz (default 41243; 0 = 27710)
     -ahi            AHI audio (sound cards)
     -ahifreq=N      AHI rate: 22050, 27710, 32000, 44100
-    -paulafilter    Amiga hardware low-pass (LED) filter on
+    -paulafilter    Force the audio (LED) filter on (~7 kHz)
     -nosound        No audio
 
   Cheats (Mega Drive only):
@@ -203,6 +203,8 @@ Changes
   - Launcher 1.2: Cheats page, GPU output settings, margin
     sliders removed.
   - Exit summary with audio and frame timing counters.
+  - paulafilter=1 now turns the audio filter on (it turned it
+    off before).
 
   v1.6 (06.07.2026)
   - Player 2 input fixed.

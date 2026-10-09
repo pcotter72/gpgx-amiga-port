@@ -372,7 +372,8 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     snprintf(line,sizeof(line),"paulaboost=%d\n",c->paulaboost);         WR(line);
     WR("; paulastereo: 1=stereo 0=mono (8-bit mode)\n");
     snprintf(line,sizeof(line),"paulastereo=%d\n",c->paulastereo);       WR(line);
-    WR("; paulafilter: 1=enable Paula hardware low-pass filter\n");
+    WR("; paulafilter: 1=force the Amiga audio (LED) filter on (~7 kHz low-pass),\n");
+    WR(";   0=leave it as the system has it.\n");
     snprintf(line,sizeof(line),"paulafilter=%d\n",c->paulafilter);       WR(line);
     WR("; ahiboost: 0=1x 1=2x 2=4x 3=8x 4=16x\n");
     snprintf(line,sizeof(line),"ahiboost=%d\n",c->ahiboost);             WR(line);
