@@ -25,6 +25,8 @@ Requirements
 - CyberGraphX (RTG)
 - 8 MB RAM minimum (16 MB recommended)
 - Chip RAM available for Paula audio buffers
+- Optional, for GPU output: Pi 4 / CM4 and minigl.library 29.1
+  (PiStorm3D). CaffeineOS already includes the library.
 
 
 Installation
@@ -130,6 +132,12 @@ Video
   Opens a CyberGraphX RTG screen in 16-bit color.
   BGRA pixel format is auto-detected and preferred.
   Double-buffered VSync available via vsync=1.
+
+  Optional GPU output (glout=1 or -gl, Pi 4 / CM4 only) draws the
+  picture through the V3D GPU with minigl.library 29.1: any screen
+  size, scanlines and a composite blend. CaffeineOS already includes
+  minigl.library; elsewhere install it from the PiStorm3D release.
+  It looks better but is not faster (about 6 ms of CPU per frame).
 
   Scanline modes simulate CRT look:
     0 = off (sharp pixels)

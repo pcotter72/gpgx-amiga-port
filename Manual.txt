@@ -56,6 +56,26 @@ CONTENTS
   -scanlines        2x scanlines (medium intensity)
   -scanlines=N      Scanline level: 1=subtle  2=medium  3=strong
   -vsync            WaitTOF vertical sync (may drop to 30fps if too slow)
+  -gl               GPU output through PiStorm3D (see below)
+  -nogl             Normal display even if glout=1 in the config
+  -gleffect=N       GPU effect: 0=sharp 1=smooth 2=scanlines 3=composite
+  -glsize=WxH       GPU output screen size (default 640x480)
+
+  GPU OUTPUT (OPTIONAL, Pi 4 / CM4 only)
+  --------------------------------------
+  Draws the picture through the Raspberry Pi's V3D GPU: any screen size,
+  sharp or smooth scaling, scanlines, and a composite blend that turns
+  dithered graphics into the see-through effects games had on a TV.
+
+  Needs minigl.library 29.1 (PiStorm3D) in LIBS:.  CaffeineOS already
+  includes it; on other systems install it from the PiStorm3D release.
+  Also needs all Picasso96 libraries from the same version, BGRA32 as
+  the only enabled 32-bit screen modes, and PiStorm's fast_page_zero
+  option switched off.  Without the library the normal display is used.
+
+  It improves the picture but is not faster: it costs about 6 ms of
+  CPU per frame.  Keep autoskip=1.  Enable it in the launcher (Video
+  tab) or with -gl.  GPU output always uses VSync off.
 
   AUDIO OPTIONS
   -------------
@@ -232,12 +252,10 @@ CONTENTS
 
   PISTORM / EMU68 USERS
   ---------------------
-  Timer.device on PiStorm can fire up to 5ms late.  Set paulamargin=200
-  (or ahimargin=220 for AHI) in the config file to prevent audio gaps:
-
-    paulamargin=200
-
-  The default (0) is correct for WinUAE and accurate-timer setups.
+  No special settings are needed.  Frames are paced against an exact
+  EClock schedule and the audio queue is rate-controlled, so timer
+  jitter no longer causes gaps.  The paulamargin / ahimargin settings
+  that older versions recommended here are obsolete and ignored.
 
 
 ===========================================================================
@@ -256,8 +274,6 @@ CONTENTS
   paulastereo=1         Paula stereo (1) or mono (0)
   paulaboost=1          Volume boost: 0=1x  1=2x  2=4x  3=8x
   ahiboost=0            AHI volume boost (same scale)
-  paulamargin=0         Extra Paula buffer samples (200 for PiStorm)
-  ahimargin=0           Extra AHI buffer samples (220 for PiStorm)
   paulafilter=0         LED low-pass filter: 0=off  1=on
   fmvol=60              FM synth volume (10-100)
   psgvol=60             PSG volume (10-200)
@@ -265,11 +281,18 @@ CONTENTS
   hqpsg=1               PSG quality: 1=band-limited  0=linear (faster)
   screendepth=32        Screen depth: 32 (PiStorm/VideoCore) or 16
                           (classic Zorro RTG cards - half blit bandwidth)
+  glout=0               GPU output (PiStorm3D): 0=off  1=on
+  gleffect=1            GPU effect: 0=sharp 1=smooth 2=scanlines 3=composite
+  glsize=640x480        GPU output screen size
   scanlines=0           0=off  1=subtle  2=medium  3=strong
   vsync=0               VSync: 0=off  1=on
   frameskip=0           0=none  1-5=skip N frames
   autoskip=1            Auto frame skip: 0=off  1=on
   fps=1                 FPS counter: 0=off  1=on
+
+  paulamargin and ahimargin from older versions are obsolete and
+  ignored: audio buffers now hold exactly one frame and the queue is
+  rate-controlled.
 
   BUTTON MAPPING EXAMPLE
   ----------------------
@@ -295,9 +318,11 @@ CONTENTS
 ===========================================================================
 
   NO SOUND / CRACKLING
-    Try adding paulamargin=200 (Paula) or ahimargin=220 (AHI) to the
-    config file.  This compensates for PiStorm timer jitter.
-    If that does not help, try a lower sample rate: -paulafreq=22050
+    Run the emulator from a Shell and read the "Audio:" and "Frames:"
+    lines it prints when you quit.  "ran dry" counts audible gaps.
+    Gaps together with frames "over budget" mean the machine is too
+    slow for the settings: set hqfm=0, or lower the sample rate with
+    -paulafreq=27710.  (paulamargin / ahimargin no longer do anything.)
 
   TOO SLOW / DROPPING FRAMES
     Set hqfm=0 in the config - much cheaper FM synthesis, big CPU saving.
@@ -314,6 +339,12 @@ CONTENTS
   WRONG SCREEN SIZE / TEARING
     -scanlines enables 2x scaling mode.  Without -scanlines the output
     is 1x (320x240).  Try -vsync to reduce tearing (may lower framerate).
+
+  GPU OUTPUT NOT USED
+    The Shell output says why, e.g. "GL: minigl.library 29.1 not
+    available".  A 29.0 library refuses programs built for 29.1 without
+    any message of its own - update minigl.library.  GPU output also
+    needs a Pi 4 / CM4 (see GPU OUTPUT in section 2).
 
   CHEATS NOT WORKING
     Check PROGDIR:Cheats/<romname>.cht exists and the filename matches
