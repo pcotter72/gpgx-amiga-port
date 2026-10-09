@@ -55,6 +55,16 @@ int video_cgx_get_vsync(void);
 /* Force 2x scaling (for Game Gear etc.) - call before video_cgx_init() */
 void video_cgx_set_force_2x(int enable);
 
+/* Explicit screen size, e.g. for GL output (0,0 = automatic).
+ * Call before video_cgx_init(). */
+void video_cgx_set_screen_size(int w, int h);
+
+/* The opened screen: its bitmap, size and bytes per pixel. */
+struct BitMap *video_cgx_get_screen_bitmap(void);
+int video_cgx_get_screen_width(void);
+int video_cgx_get_screen_height(void);
+int video_cgx_get_screen_bpp(void);
+
 /* Update the color palette (for 8-bit modes) */
 /* palette: 256 entries of RGB565 */
 void video_cgx_set_palette(unsigned short *palette);
@@ -79,5 +89,10 @@ void video_cgx_update_fps(void);
 
 /* Draw OSD text message (shown for ~1.5 seconds) */
 void video_cgx_draw_text(const char *msg, int x, int y);
+
+/* Draw the FPS counter / OSD message into an RGB565 frame (GL output).
+ * (vp_x, vp_y, vp_w, vp_h) = visible area, pitch_px = pixels per row. */
+void video_cgx_overlay_rgb565(UWORD *buf, int pitch_px,
+                              int vp_x, int vp_y, int vp_w, int vp_h);
 
 #endif /* _VIDEO_CGX_H_ */

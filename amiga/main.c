@@ -40,6 +40,9 @@ static const char amiga_version[] = "$VER: GenesisPlusGX " GPGX_VERSION " (" GPG
 
 /* Amiga subsystem includes */
 #include "video_cgx.h"
+#ifdef USE_MINIGL
+#include "video_gl.h"
+#endif
 #include "audio_paula.h"
 #include "audio_paula14.h"
 #include "audio_ahi.h"
@@ -1485,6 +1488,10 @@ typedef struct
     int hqfm;           /* High quality FM synthesis: 1=band-limited (default), 0=linear (much faster) */
     int hqpsg;          /* High quality PSG: 1=band-limited (default), 0=linear (faster) */
     int screendepth;    /* RTG screen depth: 32 (default) or 16 (RGB565, half the blit bandwidth) */
+    int glout;          /* 1 = GPU output via PiStorm3D minigl.library (GL builds only) */
+    int gleffect;       /* GPU output effect: 0=sharp 1=smooth 2=scanlines 3=composite */
+    int glwidth;        /* GPU output screen size */
+    int glheight;
     int cheats;         /* Apply PROGDIR:Cheats/<rom>.cht: 1=yes (default), 0=ignore the file */
     /* Player 1 button key mappings (Amiga rawkey codes, -1 = use default) */
     int p1_a;
@@ -1535,6 +1542,10 @@ static void config_set_defaults(config_file_t *cfg)
     cfg->hqfm = 1;            /* Band-limited FM; set 0 on slow machines (Pi 3, real 68030) */
     cfg->hqpsg = 1;           /* Band-limited PSG */
     cfg->screendepth = 32;    /* 32-bit BGRA (VideoCore fast path); 16 halves blit bandwidth */
+    cfg->glout = 0;           /* GPU output off by default */
+    cfg->gleffect = 1;        /* smooth */
+    cfg->glwidth = 640;
+    cfg->glheight = 480;
     cfg->cheats = 1;          /* Apply the .cht file when one exists */
     /* -1 means use built-in default key */
     cfg->p1_a = -1; cfg->p1_b = -1; cfg->p1_c = -1;
@@ -1756,6 +1767,26 @@ static void config_load(config_file_t *cfg)
             if (cfg->screendepth != 16 && cfg->screendepth != 32)
                 cfg->screendepth = 32;
         }
+        else if (strcmp(key, "glout") == 0)
+        {
+            cfg->glout = atoi(value) ? 1 : 0;
+        }
+        else if (strcmp(key, "gleffect") == 0)
+        {
+            cfg->gleffect = atoi(value);
+            if (cfg->gleffect < 0 || cfg->gleffect > 3)
+                cfg->gleffect = 1;
+        }
+        else if (strcmp(key, "glsize") == 0)
+        {
+            int w = 0, h = 0;
+            if (sscanf(value, "%dx%d", &w, &h) == 2 &&
+                w >= 320 && h >= 224 && w <= 4096 && h <= 4096)
+            {
+                cfg->glwidth = w;
+                cfg->glheight = h;
+            }
+        }
         else if (strcmp(key, "fps") == 0)
         {
             cfg->fps = atoi(value);
@@ -1875,6 +1906,15 @@ static void config_save_default(void)
             ";   classic Amigas with Zorro RTG cards (Picasso II etc).\n"
             ";   Falls back to 32 if no 16-bit RTG mode exists.\n"
             "screendepth=32\n"
+            "; glout: 1 = GPU output through PiStorm3D minigl.library 29.1\n"
+            ";   (Pi 4/CM4 only). Better scaling and effects, but costs ~6 ms\n"
+            ";   of CPU per drawn frame. Forces vsync off. Falls back to the\n"
+            ";   normal display when the library is missing.\n"
+            "glout=0\n"
+            "; gleffect: 0=sharp 1=smooth 2=scanlines 3=composite blend\n"
+            "gleffect=1\n"
+            "; glsize: GPU output screen size, e.g. 640x480 1280x720 1920x1080\n"
+            "glsize=640x480\n"
             "scanlines=0\n"
             "; scanlines: 0=off (fastest), 1=subtle, 2=medium, 3=strong\n"
             ";   NOTE: scanlines>0 opens a 2x screen - 4x the pixel writes per frame\n"
@@ -1943,6 +1983,15 @@ int main(int argc, char *argv[])
     int i;
     int scanlines = 0;
     int use_vsync = 0;
+#ifdef USE_MINIGL
+    int use_gl = 0;           /* -gl: draw through PiStorm3D / minigl.library */
+    int gl_effect = VGL_FX_SMOOTH;
+    int gl_rgba = 0;          /* -glrgba: upload RGBA8 instead of RGB565 */
+    int gl_w = 640, gl_h = 480;
+    int gl_ring = 1;          /* -glring=N test switch: frame textures rotated */
+    int gl_half = 0;          /* -glhalf test switch: upload halves alternately */
+    int gl_active = 0;        /* GL output really running */
+#endif
     int use_ahi = 0;
     int ahi_freq = 22050;     /* AHI core frequency - keep low for speed */
     int use_14bit = 0;
@@ -1975,6 +2024,12 @@ int main(int argc, char *argv[])
      * autoskip would see elapsed>=budget on every frame and skip half of them. */
     if (use_vsync) use_autoskip = 0;
     show_fps_counter = cfg.fps;
+#ifdef USE_MINIGL
+    use_gl = cfg.glout;
+    gl_effect = cfg.gleffect;
+    gl_w = cfg.glwidth;
+    gl_h = cfg.glheight;
+#endif
     switch (cfg.audio_mode)
     {
         case AUDIO_MODE_14BIT: use_14bit = 1; break;
@@ -2010,6 +2065,14 @@ int main(int argc, char *argv[])
         printf("\nPerformance options:\n");
         printf("  -frameskip=N  Skip N frames (1=50%%, 2=33%%, 3=25%% render)\n");
         printf("  -fps          Show FPS counter in top-right corner\n");
+#ifdef USE_MINIGL
+        printf("\nGL output (PiStorm3D / minigl.library 29, Pi 4/CM4 only):\n");
+        printf("  -gl           Draw through the V3D GPU (falls back if unavailable)\n");
+        printf("  -nogl         Normal display even if glout=1 in the config\n");
+        printf("  -gleffect=N   0=sharp 1=smooth 2=scanlines 3=composite blend\n");
+        printf("  -glsize=WxH   GL screen size (default 640x480)\n");
+        printf("  -glrgba       Upload RGBA8 instead of RGB565 (if colours look wrong)\n");
+#endif
         printf("\nDefault audio: 8-bit Paula mono (27710Hz, hardware DMA)\n");
         printf("\nConfig file: PROGDIR:GenesisPlusGX.cfg (auto-created on first run)\n");
         printf("Command line options override config file settings.\n");
@@ -2102,8 +2165,65 @@ int main(int argc, char *argv[])
         {
             show_fps_counter = 1;
         }
+#ifdef USE_MINIGL
+        else if (strcmp(argv[i], "-gl") == 0)
+        {
+            use_gl = 1;
+        }
+        else if (strcmp(argv[i], "-nogl") == 0)
+        {
+            use_gl = 0;
+        }
+        else if (strncmp(argv[i], "-gleffect=", 10) == 0)
+        {
+            use_gl = 1;
+            gl_effect = atoi(argv[i] + 10);
+        }
+        else if (strcmp(argv[i], "-glrgba") == 0)
+        {
+            use_gl = 1;
+            gl_rgba = 1;
+        }
+        else if (strcmp(argv[i], "-glhalf") == 0)
+        {
+            use_gl = 1;
+            gl_half = 1;
+        }
+        else if (strncmp(argv[i], "-glring=", 8) == 0)
+        {
+            use_gl = 1;
+            gl_ring = atoi(argv[i] + 8);
+            if (gl_ring < 1 || gl_ring > 3)
+            {
+                printf("GL: -glring takes 1 to 3, using 1\n");
+                gl_ring = 1;
+            }
+        }
+        else if (strncmp(argv[i], "-glsize=", 8) == 0)
+        {
+            int w = 0, h = 0;
+            use_gl = 1;
+            if (sscanf(argv[i] + 8, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 224)
+            {
+                gl_w = w;
+                gl_h = h;
+            }
+            else
+                printf("GL: ignoring %s (use e.g. -glsize=1280x720)\n", argv[i]);
+        }
+#endif
     }
 
+#ifdef USE_MINIGL
+    /* GL output draws its own picture into a single 32-bit screen bitmap:
+     * no double-buffered VSync (the swap would change the bitmap under the
+     * GL context) and no 16-bit screen. */
+    if (use_gl && use_vsync)
+    {
+        printf("GL: VSync is not supported with GL output, disabled\n");
+        use_vsync = 0;
+    }
+#endif
     
     /* Set scanline mode before video init */
     
@@ -2245,6 +2365,13 @@ int main(int argc, char *argv[])
     /* Calculate frame time */
     frame_time_us = vdp_pal ? 20000 : 16667;  /* 50Hz or 60Hz */
     
+#ifdef USE_MINIGL
+    if (use_gl)
+    {
+        video_cgx_set_screen_size(gl_w, gl_h);
+        video_cgx_set_depth(32);
+    }
+#endif
     /* Initialize video (opens screen) */
     if (!video_cgx_init(VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_MODE_RTG16))
     {
@@ -2257,6 +2384,21 @@ int main(int argc, char *argv[])
     bitmap.pitch = video_cgx_get_pitch();
     bitmap.data = video_cgx_get_buffer();
 
+#ifdef USE_MINIGL
+    if (use_gl)
+    {
+        if (video_cgx_get_screen_bpp() != 4)
+            printf("GL: needs a 32-bit screen - using the normal display\n");
+        else
+        {
+            video_gl_set_experiments(gl_ring, gl_half);
+            gl_active = video_gl_init(video_cgx_get_screen_bitmap(),
+                                      video_cgx_get_screen_width(),
+                                      video_cgx_get_screen_height(),
+                                      gl_effect, gl_rgba);
+        }
+    }
+#endif
     
     /* Clear the screen to black before starting */
     video_cgx_clear();
@@ -2712,6 +2854,19 @@ int main(int argc, char *argv[])
                     vp_y = 0;           /* remap_line already applied the crop */
                 }
 
+#ifdef USE_MINIGL
+                if (gl_active)
+                {
+                    /* FPS / OSD text go into the frame itself: the GPU
+                     * draws the whole screen, so nothing drawn on it
+                     * afterwards would survive. */
+                    video_cgx_overlay_rgb565((UWORD *)bitmap.data, bitmap.pitch / 2,
+                                             vp_x, vp_y, vp_w, vp_h);
+                    video_gl_update((const UWORD *)bitmap.data, bitmap.pitch / 2,
+                                    vp_x, vp_y, vp_w, vp_h);
+                }
+                else
+#endif
                 video_cgx_update(vp_x, vp_y, vp_w, vp_h);
             }
             
@@ -2844,6 +2999,11 @@ int main(int argc, char *argv[])
     {
         paula_audio_shutdown();
     }
+#ifdef USE_MINIGL
+    /* Before the screen closes: the GL context renders into its bitmap */
+    if (gl_active)
+        video_gl_shutdown();
+#endif
     video_cgx_shutdown();
     restore_paula_filter();
     timer_shutdown();

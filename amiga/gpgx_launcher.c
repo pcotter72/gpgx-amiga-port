@@ -119,6 +119,27 @@ static const char *depth_entries[] = {
     NULL
 };
 static const char *sort_entries[] = { "Sort: Name", "Sort: System", NULL };
+static const char *gleffect_entries[] = {
+    "Sharp pixels",
+    "Smooth",
+    "Scanlines",
+    "Composite blend  (dither transparency)",
+    NULL
+};
+/* GPU output sizes. Slot GLSIZE_FIXED is filled at run time with
+ * "WxH (custom)" when the config holds a size not in this list, so a
+ * hand-edited glsize survives a launcher save. */
+#define GLSIZE_FIXED 5
+static const char *glsize_entries[GLSIZE_FIXED + 2] = {
+    "640 x 480", "800 x 600", "1024 x 768", "1280 x 720", "1920 x 1080", NULL, NULL
+};
+static const int glsize_w[GLSIZE_FIXED] = { 640, 800, 1024, 1280, 1920 };
+static const int glsize_h[GLSIZE_FIXED] = { 480, 600, 768, 720, 1080 };
+static char glsize_custom[32];
+
+/* minigl.library presence, checked once at startup */
+static int  gl_lib_ok = 0;
+static char gl_status[96];
 
 /* ---- Key table ---- */
 static const struct { int code; const char *name; } key_table[] = {
@@ -187,6 +208,7 @@ typedef struct {
     int paulaboost, paulastereo, paulafilter, ahiboost;
     int paulamargin, ahimargin;
     int hqfm, hqpsg, screendepth;
+    int gl_out, gl_effect, gl_w, gl_h;   /* GPU output (PiStorm3D) */
     int cheats;         /* preserved so saving the config does not drop the key */
     int p1_a,p1_b,p1_c,p1_x,p1_y,p1_z,p1_start,p1_mode;
     int p2_a,p2_b,p2_c,p2_x,p2_y,p2_z,p2_start,p2_mode;
@@ -200,6 +222,7 @@ static void config_defaults(Config *c)
     c->paulaboost=1; c->paulastereo=1; c->paulafilter=0; c->ahiboost=0;
     c->paulamargin=0; c->ahimargin=0;
     c->hqfm=1; c->hqpsg=1; c->screendepth=32;
+    c->gl_out=0; c->gl_effect=1; c->gl_w=640; c->gl_h=480;
     c->cheats=1;
     c->p1_a=c->p1_b=c->p1_c=c->p1_x=c->p1_y=c->p1_z=-1;
     c->p1_start=c->p1_mode=-1;
@@ -274,6 +297,16 @@ static void config_load(Config *c)
         else if (!strcmp(key,"hqfm"))        c->hqfm         = atoi(value)?1:0;
         else if (!strcmp(key,"hqpsg"))       c->hqpsg        = atoi(value)?1:0;
         else if (!strcmp(key,"screendepth")) c->screendepth  = atoi(value);
+        else if (!strcmp(key,"glout"))       c->gl_out       = atoi(value)?1:0;
+        else if (!strcmp(key,"gleffect"))    c->gl_effect    = atoi(value);
+        else if (!strcmp(key,"glsize")) {
+            int w = 0, h = 0;
+            if (sscanf(value, "%dx%d", &w, &h) == 2 &&
+                w >= 320 && h >= 224 && w <= 4096 && h <= 4096) {
+                c->gl_w = w;
+                c->gl_h = h;
+            }
+        }
         else if (!strcmp(key,"cheats"))      c->cheats       = atoi(value)?1:0;
         else if (!strcmp(key,"p1_a"))        c->p1_a     = name_to_rawkey(value);
         else if (!strcmp(key,"p1_b"))        c->p1_b     = name_to_rawkey(value);
@@ -311,6 +344,7 @@ done:
     if (c->ahimargin   < 0)   c->ahimargin   = 0;
     if (c->ahimargin   > 882) c->ahimargin   = 882;
     if (c->screendepth != 16 && c->screendepth != 32) c->screendepth = 32;
+    if (c->gl_effect < 0 || c->gl_effect > 3) c->gl_effect = 1;
 }
 
 static void write_key(BPTR f, const char *cfgkey, int rawcode)
@@ -364,6 +398,15 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     WR(";\n; screendepth: 32 (PiStorm/VideoCore fast path) or 16 (half blit bandwidth,\n");
     WR(";   recommended for classic Amigas with Zorro RTG cards)\n");
     snprintf(line,sizeof(line),"screendepth=%d\n",c->screendepth);       WR(line);
+    WR("; glout: 1 = GPU output through PiStorm3D minigl.library 29.1\n");
+    WR(";   (Pi 4/CM4 only). Better scaling and effects, but costs ~6 ms\n");
+    WR(";   of CPU per drawn frame. Forces vsync off. Falls back to the\n");
+    WR(";   normal display when the library is missing.\n");
+    snprintf(line,sizeof(line),"glout=%d\n",c->gl_out);                   WR(line);
+    WR("; gleffect: 0=sharp 1=smooth 2=scanlines 3=composite blend\n");
+    snprintf(line,sizeof(line),"gleffect=%d\n",c->gl_effect);             WR(line);
+    WR("; glsize: GPU output screen size, e.g. 640x480 1280x720 1920x1080\n");
+    snprintf(line,sizeof(line),"glsize=%dx%d\n",c->gl_w,c->gl_h);         WR(line);
     WR("; scanlines: 0=off 1=subtle 2=medium 3=strong (1-3 open 2x screen)\n");
     snprintf(line,sizeof(line),"scanlines=%d\n",c->scanlines);           WR(line);
     WR("; vsync: 1=double-buffer tear-free (auto skip disabled when vsync=1)\n");
@@ -970,6 +1013,7 @@ struct AppData {
     /* Video */
     Object *cy_scanlines, *cm_vsync, *cy_frameskip, *cm_autoskip, *cm_fps;
     Object *cy_depth;
+    Object *cm_glout, *cy_gleffect, *cy_glsize, *tx_glstatus;
     /* Audio */
     Object *cy_audio, *str_paulafreq, *str_ahifreq;
     Object *cy_paulaboost, *cm_paulastereo, *cm_paulafilter, *cy_ahiboost;
@@ -994,6 +1038,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
     Object *win;
     char pf[16], af[16], k[8][16], k2[8][16];
     int i, p1r[8], p2r[8];
+    int gl_size_idx;
 
     snprintf(pf, sizeof(pf), "%d", c->paula_freq);
     snprintf(af, sizeof(af), "%d", c->ahi_freq);
@@ -1004,6 +1049,16 @@ static Object *create_gui(struct AppData *d, const Config *c)
     for (i=0; i<8; i++) {
         rawkey_to_name(p1r[i], k[i],  sizeof(k[i]));
         rawkey_to_name(p2r[i], k2[i], sizeof(k2[i]));
+    }
+
+    /* GPU output size: a listed size, or one extra "custom" entry */
+    for (gl_size_idx = 0; gl_size_idx < GLSIZE_FIXED; gl_size_idx++)
+        if (c->gl_w == glsize_w[gl_size_idx] && c->gl_h == glsize_h[gl_size_idx])
+            break;
+    if (gl_size_idx == GLSIZE_FIXED) {
+        snprintf(glsize_custom, sizeof(glsize_custom), "%d x %d (custom)",
+                 c->gl_w, c->gl_h);
+        glsize_entries[GLSIZE_FIXED] = glsize_custom;
     }
 
     d->app = ApplicationObject,
@@ -1106,6 +1161,31 @@ static Object *create_gui(struct AppData *d, const Config *c)
                             Child, d->cm_fps = CheckMark(c->fps),
                             Child, Label1(STR("Show FPS counter")),
                             Child, HSpace(0),
+                        End,
+
+                        Child, VGroup, GroupFrame,
+                            MUIA_FrameTitle, STR("GPU Output  (PiStorm3D, Pi 4/CM4)"),
+                            Child, HGroup,
+                                Child, d->cm_glout = CheckMark(c->gl_out),
+                                Child, Label1(STR("Draw through the V3D GPU  (costs ~6 ms CPU per frame)")),
+                                Child, HSpace(0),
+                            End,
+                            Child, ColGroup(2),
+                                Child, Label1(STR("Effect:")),
+                                Child, d->cy_gleffect = CycleObject,
+                                    MUIA_Cycle_Entries, gleffect_entries,
+                                    MUIA_Cycle_Active,  c->gl_effect,
+                                End,
+                                Child, Label1(STR("Size:")),
+                                Child, d->cy_glsize = CycleObject,
+                                    MUIA_Cycle_Entries, glsize_entries,
+                                    MUIA_Cycle_Active,  gl_size_idx,
+                                End,
+                            End,
+                            Child, d->tx_glstatus = TextObject,
+                                MUIA_Text_Contents, STR(gl_status),
+                                MUIA_Text_SetMin,   FALSE,
+                            End,
                         End,
 
                         Child, VSpace(0),
@@ -1400,6 +1480,33 @@ static Object *create_gui(struct AppData *d, const Config *c)
     DoMethod(d->str_filter, MUIM_Notify, MUIA_String_Acknowledge, MUIV_EveryTime,
              d->app, 2, MUIM_Application_ReturnID, ID_FILTER);
 
+    /* GPU output. With minigl.library present the checkmark disables the
+     * settings GL overrides (CPU scanlines, VSync, 16-bit depth) and
+     * enables its own. Without the library the emulator falls back to the
+     * normal display, so those stay usable and the GL ones are greyed. */
+    if (gl_lib_ok) {
+        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                 d->cy_scanlines, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
+        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                 d->cm_vsync, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
+        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                 d->cy_depth, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
+        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                 d->cy_gleffect, 3, MUIM_Set, MUIA_Disabled, MUIV_NotTriggerValue);
+        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                 d->cy_glsize, 3, MUIM_Set, MUIA_Disabled, MUIV_NotTriggerValue);
+        /* initial state */
+        set(d->cy_scanlines, MUIA_Disabled, c->gl_out ? TRUE : FALSE);
+        set(d->cm_vsync,     MUIA_Disabled, c->gl_out ? TRUE : FALSE);
+        set(d->cy_depth,     MUIA_Disabled, c->gl_out ? TRUE : FALSE);
+        set(d->cy_gleffect,  MUIA_Disabled, c->gl_out ? FALSE : TRUE);
+        set(d->cy_glsize,    MUIA_Disabled, c->gl_out ? FALSE : TRUE);
+    } else {
+        set(d->cm_glout,    MUIA_Disabled, TRUE);
+        set(d->cy_gleffect, MUIA_Disabled, TRUE);
+        set(d->cy_glsize,   MUIA_Disabled, TRUE);
+    }
+
     /* Sort order change */
     DoMethod(d->cy_sort, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
              d->app, 2, MUIM_Application_ReturnID, ID_SORT);
@@ -1455,6 +1562,13 @@ static void collect(struct AppData *d, Config *c)
     get(d->sl_fmvol,       MUIA_Numeric_Value, &val); c->fmvol       =(int)val;
     get(d->sl_psgvol,      MUIA_Numeric_Value, &val); c->psgvol      =(int)val;
     get(d->cy_depth,       MUIA_Cycle_Active,  &val); c->screendepth = val ? 16 : 32;
+    get(d->cm_glout,       MUIA_Selected,      &val); c->gl_out      =(int)val;
+    get(d->cy_gleffect,    MUIA_Cycle_Active,  &val); c->gl_effect   =(int)val;
+    get(d->cy_glsize,      MUIA_Cycle_Active,  &val);
+    if ((int)val < GLSIZE_FIXED) {          /* else: keep the custom size */
+        c->gl_w = glsize_w[val];
+        c->gl_h = glsize_h[val];
+    }
     get(d->cm_hqfm,        MUIA_Selected,      &val); c->hqfm        =(int)val;
     get(d->cm_hqpsg,       MUIA_Selected,      &val); c->hqpsg       =(int)val;
     get(d->sl_paulamargin, MUIA_Numeric_Value, &val); c->paulamargin =(int)val;
@@ -1638,6 +1752,22 @@ int main(void)
 
     config_load(&c);
     do_scan();
+
+    /* GPU output needs minigl.library 29 (PiStorm3D). Only checked here;
+     * the emulator itself falls back when it cannot use it. */
+    {
+        struct Library *mgl = OpenLibrary("minigl.library", 29);
+        if (mgl) {
+            snprintf(gl_status, sizeof(gl_status),
+                     "minigl.library %d.%d found",
+                     (int)mgl->lib_Version, (int)mgl->lib_Revision);
+            gl_lib_ok = 1;
+            CloseLibrary(mgl);
+        } else {
+            strcpy(gl_status, "minigl.library 29 not installed - needs Pi 4/CM4 + PiStorm3D");
+            gl_lib_ok = 0;
+        }
+    }
 
     /* Initialise display hook (HookEntry bridges 68k register ABI -> C) */
     memset(&disp_hook, 0, sizeof(disp_hook));

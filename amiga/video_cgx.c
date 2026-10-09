@@ -105,6 +105,8 @@ static int dbl_buf_active = 0;   /* 1 if double buffering is in use */
 static int scanline_mode = 0;      /* 0=off, 1=subtle, 2=medium, 3=strong */
 static int screen_is_2x = 0;       /* 1 if screen is 2x size for scanlines */
 static int force_2x = 0;           /* Force 2x scaling (e.g. Game Gear) */
+static int req_screen_w = 0;       /* video_cgx_set_screen_size(): 0 = auto */
+static int req_screen_h = 0;
 static int screen_width = 0;
 static int screen_height = 0;
 
@@ -242,6 +244,10 @@ static void draw_text(ULONG *fb, int fb_stride, int x, int y, const char *text, 
 
 /* 16-bit screen variants */
 static void draw_fps16(UWORD *fb, int fb_stride, int screen_w);
+static void draw_fps16_at(UWORD *fb, int fb_stride, int x, int y,
+                          UWORD yellow, UWORD black);
+static void draw_text16_c(UWORD *fb, int fb_stride, int x, int y, const char *text,
+                          UWORD color, UWORD shadow, int max_x);
 static void draw_text16(UWORD *fb, int fb_stride, int x, int y, const char *text, UWORD color);
 
 /* RGB565 to RGBA lookup table (65536 entries) */
@@ -467,8 +473,15 @@ int video_cgx_init(int width, int height, int mode)
     video_width = width;
     video_height = height;
     
-    /* Determine screen size based on scanline mode or forced 2x */
-    if (scanline_mode > 0 || force_2x)
+    /* Determine screen size: an explicit request (GL output draws its own
+     * scaled picture), else scanline mode or forced 2x, else 1x. */
+    if (req_screen_w > 0 && req_screen_h > 0)
+    {
+        screen_width = req_screen_w;
+        screen_height = req_screen_h;
+        screen_is_2x = 0;
+    }
+    else if (scanline_mode > 0 || force_2x)
     {
         screen_width = width * 2;
         screen_height = height * 2;
@@ -1152,6 +1165,28 @@ int video_cgx_get_vsync(void)
 }
 
 /****************************************************************************
+ * Explicit screen size (e.g. for GL output). 0,0 = automatic.
+ * Must be called BEFORE video_cgx_init.
+ ****************************************************************************/
+void video_cgx_set_screen_size(int w, int h)
+{
+    req_screen_w = (w > 0 && h > 0) ? w : 0;
+    req_screen_h = (w > 0 && h > 0) ? h : 0;
+}
+
+/****************************************************************************
+ * The screen and its bitmap (valid between video_cgx_init and shutdown).
+ ****************************************************************************/
+struct BitMap *video_cgx_get_screen_bitmap(void)
+{
+    return video_screen ? video_screen->RastPort.BitMap : NULL;
+}
+
+int video_cgx_get_screen_width(void)  { return screen_width; }
+int video_cgx_get_screen_height(void) { return screen_height; }
+int video_cgx_get_screen_bpp(void)    { return screen_bpp; }
+
+/****************************************************************************
  * Force 2x scaling (for small resolutions like Game Gear 160x144)
  * Must be called before video_cgx_init()
  ****************************************************************************/
@@ -1388,11 +1423,16 @@ static void draw_digit16(UWORD *fb, int fb_stride, int x, int y, int digit, UWOR
 
 static void draw_fps16(UWORD *fb, int fb_stride, int screen_w)
 {
+    /* Colours in the 16-bit screen format, via the screen LUT */
+    draw_fps16_at(fb, fb_stride, screen_w - 24, 4,
+                  rgb565_to_16[0xFFE0], rgb565_to_16[0x0000]);
+}
+
+/* FPS digits with their left edge at x, in caller-supplied colours */
+static void draw_fps16_at(UWORD *fb, int fb_stride, int x, int y,
+                          UWORD yellow, UWORD black)
+{
     int fps = fps_current;
-    int x = screen_w - 24;
-    int y = 4;
-    UWORD yellow = rgb565_to_16[0xFFE0];  /* RGB565 yellow via LUT */
-    UWORD black  = rgb565_to_16[0x0000];
     int d1, d2;
 
     if (fps > 99) fps = 99;
@@ -1449,14 +1489,54 @@ static void draw_char16(UWORD *fb, int fb_stride, int x, int y, int ch, UWORD co
 static void draw_text16(UWORD *fb, int fb_stride, int x, int y,
                         const char *text, UWORD color)
 {
-    UWORD shadow = rgb565_to_16[0x0000];
+    draw_text16_c(fb, fb_stride, x, y, text, color, rgb565_to_16[0x0000], 0x7FFF);
+}
+
+/* Text with a 1-pixel shadow. Characters that would reach max_x (the
+ * shadow is one pixel wider) are not drawn, so a long message cannot
+ * spill past the right edge of the row into the next one. */
+static void draw_text16_c(UWORD *fb, int fb_stride, int x, int y, const char *text,
+                          UWORD color, UWORD shadow, int max_x)
+{
     int i;
 
     for (i = 0; text[i] != 0; i++)
     {
         int cx = x + i * 8;
+        if (cx + 9 > max_x)
+            break;
         draw_char16(fb, fb_stride, cx + 1, y + 1, text[i], shadow);
         draw_char16(fb, fb_stride, cx, y, text[i], color);
+    }
+}
+
+/****************************************************************************
+ * Draw the FPS counter and OSD message into the emulator's own RGB565
+ * frame (used when GL output draws the picture). Colours are plain RGB565
+ * here: rgb565_to_16[] is the SCREEN format, and on a 32-bit screen it
+ * overlays the 32-bit LUT, so it must not be used for this buffer.
+ * The OSD timer counts down exactly as in video_cgx_update().
+ ****************************************************************************/
+void video_cgx_overlay_rgb565(UWORD *buf, int pitch_px,
+                              int vp_x, int vp_y, int vp_w, int vp_h)
+{
+    UWORD *origin;
+
+    if (!buf || vp_x < 0 || vp_y < 0 || vp_w < 32 || vp_h < 16)
+        return;
+    if (vp_x + vp_w > pitch_px)
+        return;
+    origin = buf + (ULONG)vp_y * (ULONG)pitch_px + (ULONG)vp_x;
+
+    if (show_fps)
+        draw_fps16_at(origin, pitch_px, vp_w - 24, 4, 0xFFE0, 0x0000);
+
+    if (osd_text_timer > 0 && osd_text[0] != 0)
+    {
+        draw_text16_c(origin, pitch_px, 4, 4, osd_text, 0xFFFF, 0x0000, vp_w);
+        osd_text_timer--;
+        if (osd_text_timer == 0)
+            osd_text[0] = 0;
     }
 }
 

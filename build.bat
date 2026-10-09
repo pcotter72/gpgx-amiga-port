@@ -34,6 +34,11 @@ set CPU=68040
 set LIBC=nix20
 set TARGET=all
 set USE_ZIP_FLAG=USE_ZIP=1
+set MINIGL_FLAG=
+REM GPU output (PiStorm3D) is built in automatically when its SDK sits next
+REM to this folder; "nogl" leaves it out. The binary runs fine without
+REM minigl.library either way - GPU output is just unavailable then.
+if exist "%~dp0..\PiStorm3D\PiStorm3D\SDK\lib\libminigl.a" set "MINIGL_FLAG=USE_MINIGL=1"
 
 :parse_args
 if "%1"=="" goto build
@@ -48,6 +53,8 @@ if "%1"=="info"  set "TARGET=info" & shift & goto parse_args
 if "%1"=="clib2"    set "LIBC=clib2" & shift & goto parse_args
 if "%1"=="launcher" set "TARGET=launcher" & shift & goto parse_args
 if "%1"=="zip"   set "USE_ZIP_FLAG=USE_ZIP=1" & shift & goto parse_args
+if "%1"=="gl"    set "MINIGL_FLAG=USE_MINIGL=1" & shift & goto parse_args
+if "%1"=="nogl"  set "MINIGL_FLAG=" & shift & goto parse_args
 if "%1"=="help"  goto help
 if "%1"=="-h"    goto help
 if "%1"=="/?"    goto help
@@ -76,6 +83,8 @@ echo   launcher - Build MUI game launcher + config GUI
 echo   debug    - Build with debug symbols
 echo   info     - Show build configuration
 echo   zip      - Enable ZIP ROM support (requires amiga/miniz.h + miniz.c)
+echo   gl       - Build in PiStorm3D GPU output (default if ..\PiStorm3D SDK exists)
+echo   nogl     - Leave GPU output out
 echo   help     - Show this help
 echo.
 echo Examples:
@@ -123,6 +132,8 @@ if "%TARGET%"=="pi3" (
     echo Building Pi 3 PiStorm optimised binary...
     echo CPU: 68030 with all ASM optimisations
     echo.
+    set "BUILD_STAMP=pi3 68030"
+    call :check_stamp
     if exist GenesisPlusGX del GenesisPlusGX
     make pi3 CPU=68030 LIBC=%LIBC% SHELL=sh.exe
     if not exist GenesisPlusGX goto build_failed
@@ -142,8 +153,11 @@ echo C Library: %LIBC%
 echo ASM optimizations: audio, video, blip
 echo.
 
+if defined MINIGL_FLAG (echo GPU output: built in) else (echo GPU output: not built in)
+set "BUILD_STAMP=%TARGET% %CPU% %LIBC% %USE_ZIP_FLAG% %MINIGL_FLAG%"
+call :check_stamp
 if exist GenesisPlusGX del GenesisPlusGX
-make %TARGET% CPU=%CPU% LIBC=%LIBC% USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 %USE_ZIP_FLAG% SHELL=sh.exe
+make %TARGET% CPU=%CPU% LIBC=%LIBC% USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 %USE_ZIP_FLAG% %MINIGL_FLAG% SHELL=sh.exe
 if not exist GenesisPlusGX goto build_failed
 
 echo.
@@ -174,3 +188,15 @@ echo.
 pause
 exit /b 0
 
+:check_stamp
+REM make does not see -D/-m flag changes, so objects built with other
+REM options would be linked as they are. Clean when the options differ
+REM from the last build (stamp kept in .buildstamp).
+set "LAST_STAMP="
+if exist .buildstamp set /p LAST_STAMP=<.buildstamp
+if not "%LAST_STAMP%"=="%BUILD_STAMP%" (
+    echo Build options changed - cleaning first
+    make clean SHELL=sh.exe
+)
+>.buildstamp echo %BUILD_STAMP%
+goto :eof

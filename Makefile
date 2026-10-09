@@ -246,6 +246,24 @@ amiga/miniz_zip.o: amiga/miniz_zip.c amiga/miniz_zip.h amiga/miniz_common.h
 	$(CC) $(MINIZ_CFLAGS) -c amiga/miniz_zip.c -o amiga/miniz_zip.o
 endif
 
+# PiStorm3D GL output (opt-in: make USE_MINIGL=1)
+# Needs the PiStorm3D client SDK (minigl.library 29.1). The binary still runs
+# without minigl.library installed: -gl then falls back to the normal display.
+# Override the SDK location with MINIGL_SDK=<path>.
+ifdef USE_MINIGL
+# This Windows-hosted gcc cannot follow the SDK's own "../../../backend"
+# includes from a relative or /cygdrive path (verified 2026-10-09), so the
+# SDK path is turned into a drive path: /cygdrive/z/x -> z:/x.
+_MG_ABS    := $(patsubst /%,%,$(patsubst /cygdrive/%,/%,$(abspath ../PiStorm3D/PiStorm3D/SDK)))
+_MG_DRIVE  := $(firstword $(subst /, ,$(_MG_ABS)))
+MINIGL_SDK ?= $(_MG_DRIVE):/$(patsubst $(_MG_DRIVE)/%,%,$(_MG_ABS))
+OBJECTS    += amiga/video_gl.o
+CFLAGS     += -DUSE_MINIGL
+LIBS       := -L$(MINIGL_SDK)/lib -lminigl $(LIBS)
+amiga/video_gl.o: amiga/video_gl.c amiga/video_gl.h
+	$(CC) $(CFLAGS) -I$(MINIGL_SDK)/minigl-shared-library/include -c amiga/video_gl.c -o amiga/video_gl.o
+endif
+
 #############################################################################
 # Build rules
 #############################################################################
@@ -293,7 +311,7 @@ strip: $(TARGET)
 	$(STRIP) -s $(TARGET) -o $(TARGET).stripped
 
 clean:
-	rm -f $(OBJECTS) amiga/svp_asm.o amiga/blip_asm.o amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o $(TARGET) $(TARGET).stripped $(LAUNCHER_TARGET) $(LAUNCHER_OBJ)
+	rm -f $(OBJECTS) amiga/svp_asm.o amiga/blip_asm.o amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o amiga/video_gl.o $(TARGET) $(TARGET).stripped $(LAUNCHER_TARGET) $(LAUNCHER_OBJ)
 	@echo "Clean complete!"
 
 # Dependency generation (optional, for development)

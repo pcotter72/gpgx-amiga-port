@@ -88,6 +88,7 @@ make USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
 | `USE_ASM_VIDEO=1` | Assembly-optimized RGB565-to-RGBA blitters |
 | `USE_ASM_BLIP=1` | Assembly-optimized blip_buf resampling |
 | `USE_ZIP=1` | ZIP ROM support (miniz, in-memory extraction) |
+| `USE_MINIGL=1` | PiStorm3D GPU output (`-gl`). `build.bat` adds it automatically when `../PiStorm3D/PiStorm3D/SDK` exists; `build.bat nogl` leaves it out |
 | `LIBC=nix20` | libnix runtime (default) |
 | `LIBC=clib2` | clib2 runtime |
 | `debug` | Build with debug symbols |
@@ -141,6 +142,35 @@ GenesisPlusGX rom.bin -paulafreq=22050 -fps
 | `-scanlines=N` | Scanline level 1-3 (1=subtle, 2=medium, 3=strong) |
 | `-vsync` | Enable VSync via WaitTOF (reduces tearing, may cap at 30fps if too slow) |
 
+#### GPU Output (PiStorm3D, optional)
+
+Builds made with the PiStorm3D SDK can draw the picture through the
+Raspberry Pi 4 / CM4's V3D GPU using `minigl.library`: scaling to any
+screen size, scanlines and a composite blend that turns dither patterns
+into the transparency games expected from a TV. Off by default; enable
+it in the launcher (Video tab) or with `-gl`.
+
+| Option | Description |
+|--------|-------------|
+| `-gl` | Draw through the GPU (falls back to the normal display if unavailable) |
+| `-nogl` | Normal display even if `glout=1` in the config |
+| `-gleffect=N` | 0=sharp, 1=smooth (default), 2=scanlines, 3=composite blend |
+| `-glsize=WxH` | GPU output screen size (default 640x480; the nearest RTG mode is used) |
+| `-glrgba` | Upload RGBA8 instead of RGB565 (only if colours look wrong) |
+
+Requirements (from the PiStorm3D FAQ): Pi 4 / CM4 / 4B, `minigl.library`
+**29.1** in `LIBS:` (a 29.0 library refuses 29.1 clients silently), all
+Picasso96 libraries from the same version, BGRA32 as the only enabled
+32-bit screen modes, and PiStorm's `fast_page_zero` option off. GPU output
+forces VSync off and a 32-bit screen.
+
+**It is not faster.** The emulation is unchanged, and handing each frame
+to the GPU costs about 6 ms of CPU per drawn frame (measured on a CM4 with
+minigl.library 29.1: ~5.4 ms texture upload, ~1.7 ms draw at 640x480)
+against ~0.8 ms for the normal display. Larger output sizes add draw time
+(~4.9 ms at 1280x720 with the composite effect). Keep `autoskip=1` on.
+The exit summary prints the measured `GL: upload` / `draw+present` times.
+
 #### Audio Options
 | Option | Description |
 |--------|-------------|
@@ -151,7 +181,7 @@ GenesisPlusGX rom.bin -paulafreq=22050 -fps
 | `-paulafilter` | Enable Amiga hardware low-pass filter (LED filter, ~12kHz cutoff) |
 | `-nosound` | Disable audio entirely (maximum speed) |
 
-Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `hqfm`, `hqpsg`, `screendepth` (see Configuration section).
+Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `hqfm`, `hqpsg`, `screendepth`, `glout`, `gleffect`, `glsize` (see Configuration section).
 
 #### Performance Options
 | Option | Description |
@@ -335,6 +365,14 @@ hqpsg=1
 #   16 = RGB565 screen, half the blit bandwidth - recommended for classic
 #   Amigas with Zorro RTG cards. Falls back to 32 if no 16-bit mode exists.
 screendepth=32
+
+# GPU output via PiStorm3D minigl.library 29.1 (Pi 4/CM4, GL builds only)
+#   glout:    1 = on (falls back to the normal display if unavailable)
+#   gleffect: 0=sharp 1=smooth 2=scanlines 3=composite blend
+#   glsize:   output screen size, e.g. 640x480 1280x720 1920x1080
+glout=0
+gleffect=1
+glsize=640x480
 
 # Scanlines: 0=off (default), 1=subtle, 2=medium, 3=strong
 scanlines=0

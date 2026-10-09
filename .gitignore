@@ -5,6 +5,7 @@ GenesisPlusGX
 GenesisPlusGX-Launcher
 GenesisPlusGX-Config
 *.stripped
+.buildstamp
 
 # Game ROMs - commercial software, never commit these
 roms/
