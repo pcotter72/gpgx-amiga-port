@@ -67,9 +67,12 @@ struct Library *LowLevelBase  = NULL;
 #define ROM_PATH_GEN "PROGDIR:Roms/"
 #define ROM_PATH_GG  "PROGDIR:Roms/Gamegear/"
 #define ROM_PATH_SMS "PROGDIR:Roms/Mastersystem/"
+#define CHEAT_DIR    "PROGDIR:Cheats/"
 
 /* ---- Return IDs ---- */
-enum { ID_SAVE = 1, ID_CANCEL, ID_LAUNCH, ID_SCAN, ID_FILTER, ID_SORT, ID_ABOUT };
+enum { ID_SAVE = 1, ID_CANCEL, ID_LAUNCH, ID_SCAN, ID_FILTER, ID_SORT, ID_ABOUT,
+       ID_ROMSEL, ID_CHEAT_TOGGLE, ID_CHEAT_ALL, ID_CHEAT_NONE,
+       ID_CHEAT_SAVE, ID_CHEAT_RELOAD };
 
 /* ---- System types ---- */
 #define SYSTEM_GENESIS 0
@@ -372,7 +375,8 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     WR("; fps: 1=show FPS counter\n");
     snprintf(line,sizeof(line),"fps=%d\n",c->fps);                       WR(line);
     WR("; cheats: 1=apply PROGDIR:Cheats/<romname>.cht (Mega Drive only), 0=ignore it.\n");
-    WR(";   Individual codes are switched with the cheatN_enable lines in that file.\n");
+    WR(";   Individual codes are switched with the cheatN_enable lines in that file,\n");
+    WR(";   which the launcher's Cheats page edits for you.\n");
     snprintf(line,sizeof(line),"cheats=%d\n",c->cheats);                 WR(line);
     WR(";\n; Button mappings\n");
     WR("; Player 1 defaults: A=1 B=2 C=3 X=q Y=w Z=e Start=space Mode=tab\n");
@@ -583,6 +587,378 @@ static void rebuild_list(Object *list, Object *tx, const char *filter)
 }
 
 /* ================================================================
+ * CHEATS  -  PROGDIR:Cheats/<romname>.cht  (RetroArch .cht format)
+ *
+ * The emulator reads this file itself (load_cheats_cht() in amiga/main.c) and
+ * applies only the entries whose cheatN_enable line says "true". This page
+ * lists the entries of the selected game and rewrites just those lines:
+ * descriptions, codes, comments, the cheats= count and any key this launcher
+ * does not understand are copied through untouched.
+ *
+ * The emulator's parser is order sensitive - a cheatN_enable line is only
+ * honoured when it comes after the cheatN_code line of the same N - so the
+ * enable line of every entry is re-emitted at the end of that entry's own
+ * block rather than left wherever it happened to sit.
+ * ================================================================ */
+
+#define MAX_CHEATS      128
+#define CHEAT_FILE_MAX  65536L   /* refuse to load anything bigger rather than
+                                  * risk writing a truncated file back out */
+
+typedef struct {
+    int  index;        /* the N in cheatN_desc, not our position in the list */
+    int  enabled;
+    char desc[128];
+    char code[160];
+} CheatEntry;
+
+static CheatEntry  cheat_list[MAX_CHEATS];
+static int         cheat_count     = 0;
+static int         cheat_have_file = 0;  /* a .cht was found and read */
+static int         cheat_dirty     = 0;  /* a toggle is not on disk yet */
+static char        cheat_path[256];      /* "" = no game selected */
+static char        cheat_status[320] = "Select a game on the Games page.";
+static struct Hook cheat_disp_hook;
+
+/* MUI List display hook, same HookEntry relay as disp_hook_func().
+ * Three columns: enabled mark, description, code. */
+static ULONG cheat_disp_func(struct Hook *h, char **arr, CheatEntry *entry)
+{
+    (void)h;
+    if (entry) {
+        /* A plain character, not the "\033I[6:15]" MUII_CheckMark image: MUI's
+         * configurable checkmark only draws its tick in the IDS_SELECTED
+         * state and the ESC I[] text escape cannot ask for a state, so the
+         * image would come out blank for enabled and disabled alike. */
+        arr[0] = (char *)(entry->enabled ? "\033cX" : "\033c-");
+        arr[1] = entry->desc[0] ? entry->desc : (char *)"(no description)";
+        arr[2] = entry->code;
+    } else {
+        arr[0] = (char *)"\033cOn";
+        arr[1] = (char *)"Cheat";
+        arr[2] = (char *)"Code";
+    }
+    return 0;
+}
+
+/* Build PROGDIR:Cheats/<basename without extension>.cht from a ROM path.
+ * Mirrors load_cheats_cht() in amiga/main.c exactly: the basename starts after
+ * the last '/' or ':', and only the last '.' within it is the extension. Both
+ * programs run from the same directory, so the literal PROGDIR: matches. */
+static void cheat_path_for_rom(const char *rompath, char *out, int outsz)
+{
+    const char *p, *base, *dot;
+    int len;
+
+    base = rompath;
+    for (p = rompath; *p; p++)
+        if (*p == '/' || *p == ':') base = p + 1;
+    dot = NULL;
+    for (p = base; *p; p++)
+        if (*p == '.') dot = p;
+    len = dot ? (int)(dot - base) : (int)strlen(base);
+    if (len > 200) len = 200;   /* CHEAT_DIR + 200 + ".cht" + NUL < outsz */
+    snprintf(out, outsz, CHEAT_DIR "%.*s.cht", len, base);
+}
+
+/* Read a whole file into one AllocVec'd, NUL-terminated buffer.
+ * The size comes from Lock()+Examine() and not from a seek-to-end: the V40
+ * autodoc for Seek() calls its result both "oldPosition" and "the current
+ * absolute position", so that idiom is not something to rely on here.
+ * Returns NULL when the file is missing, empty, oversized or unreadable. */
+static char *cheat_file_read(const char *path, LONG *out_len)
+{
+    BPTR lock, f;
+    struct FileInfoBlock *fib;
+    LONG size = -1, got;
+    char *buf;
+
+    *out_len = 0;
+    lock = Lock((STRPTR)path, ACCESS_READ);
+    if (!lock) return NULL;
+    fib = (struct FileInfoBlock *)AllocDosObject(DOS_FIB, NULL);
+    if (fib) {
+        if (Examine(lock, fib) && fib->fib_DirEntryType < 0)
+            size = fib->fib_Size;
+        FreeDosObject(DOS_FIB, fib);
+    }
+    UnLock(lock);
+    if (size <= 0 || size > CHEAT_FILE_MAX) return NULL;
+
+    buf = (char *)AllocVec((ULONG)size + 1, MEMF_ANY);
+    if (!buf) return NULL;
+    f = Open((STRPTR)path, MODE_OLDFILE);
+    if (!f) { FreeVec(buf); return NULL; }
+    got = Read(f, buf, size);
+    Close(f);
+    if (got <= 0) { FreeVec(buf); return NULL; }
+    buf[got] = 0;
+    *out_len = got;
+    return buf;
+}
+
+/* Split the next line out of an in-memory file image, in place.
+ * Handles LF, CR and CRLF. Returns NULL once the image is exhausted. */
+static char *cheat_next_line(char **pos)
+{
+    char *s = *pos, *p;
+    int cr;
+
+    if (!s || !*s) { *pos = NULL; return NULL; }
+    p = s;
+    while (*p && *p != '\n' && *p != '\r') p++;
+    if (*p) {
+        cr = (*p == '\r');
+        *p++ = 0;
+        if (cr && *p == '\n') p++;
+    }
+    *pos = p;
+    return s;
+}
+
+/* Split "key = value" the way the emulator's cheat parser does: trim blanks
+ * and tabs around both halves, then strip one surrounding pair of double
+ * quotes from the value. Returns 0 when the line holds no '='. */
+static int cheat_split_kv(const char *line, char *key, int keysz,
+                          char *value, int valsz)
+{
+    const char *eq, *s;
+    int n;
+
+    eq = strchr(line, '=');
+    if (!eq) return 0;
+
+    s = line;
+    while (*s == ' ' || *s == '\t') s++;
+    n = (int)(eq - s);
+    if (n < 0) n = 0;
+    while (n > 0 && (s[n-1] == ' ' || s[n-1] == '\t')) n--;
+    if (n >= keysz) n = keysz - 1;
+    memcpy(key, s, (size_t)n);
+    key[n] = 0;
+
+    s = eq + 1;
+    while (*s == ' ' || *s == '\t') s++;
+    n = (int)strlen(s);
+    while (n > 0 && (s[n-1] == ' ' || s[n-1] == '\t' || s[n-1] == '\r')) n--;
+    if (n >= 2 && s[0] == '"' && s[n-1] == '"') { s++; n -= 2; }
+    if (n >= valsz) n = valsz - 1;
+    memcpy(value, s, (size_t)n);
+    value[n] = 0;
+    return 1;
+}
+
+/* "cheat12_desc" -> idx 12, field "desc".
+ * Requires a digit straight after "cheat", which rejects the file's own
+ * "cheats = N" count line. Returns 0 for anything else. */
+static int cheat_parse_key(const char *key, int *idx, const char **field)
+{
+    const char *p = key;
+
+    if (strncmp(p, "cheat", 5) != 0) return 0;
+    p += 5;
+    if (*p < '0' || *p > '9') return 0;
+    *idx = atoi(p);
+    while (*p >= '0' && *p <= '9') p++;
+    if (*p != '_') return 0;
+    *field = p + 1;
+    return 1;
+}
+
+static void cheats_status_update(void)
+{
+    int i, on = 0;
+
+    if (!cheat_path[0]) {
+        strcpy(cheat_status, "Select a game on the Games page.");
+        return;
+    }
+    if (!cheat_have_file) {
+        snprintf(cheat_status, sizeof(cheat_status),
+                 "No cheat file - create %s", cheat_path);
+        return;
+    }
+    if (!cheat_count) {
+        snprintf(cheat_status, sizeof(cheat_status),
+                 "No cheat entries in %s", cheat_path);
+        return;
+    }
+    for (i = 0; i < cheat_count; i++)
+        if (cheat_list[i].enabled) on++;
+    snprintf(cheat_status, sizeof(cheat_status), "%d cheat%s, %d on%s  -  %s",
+             cheat_count, (cheat_count == 1) ? "" : "s", on,
+             cheat_dirty ? "  (UNSAVED)" : "", cheat_path);
+}
+
+/* Parse the .cht of one ROM into cheat_list[]. List order follows the file;
+ * each entry keeps its own cheatN index so the rewrite can find its lines.
+ * Pass NULL to mean "no game selected". */
+static void cheats_load(const char *rompath)
+{
+    char *img, *pos, *line;
+    char key[64], value[256];
+    const char *field;
+    LONG len;
+    int idx, i, w;
+
+    cheat_count     = 0;
+    cheat_have_file = 0;
+    cheat_dirty     = 0;
+    cheat_path[0]   = 0;
+    idx             = 0;
+
+    if (!rompath || !rompath[0]) { cheats_status_update(); return; }
+    cheat_path_for_rom(rompath, cheat_path, sizeof(cheat_path));
+
+    img = cheat_file_read(cheat_path, &len);
+    if (!img) { cheats_status_update(); return; }
+    cheat_have_file = 1;
+
+    pos = img;
+    while ((line = cheat_next_line(&pos)) != NULL) {
+        if (!line[0] || line[0] == ';' || line[0] == '#') continue;
+        if (!cheat_split_kv(line, key, sizeof(key), value, sizeof(value)))
+            continue;
+        if (!cheat_parse_key(key, &idx, &field)) continue;
+
+        for (i = 0; i < cheat_count; i++)
+            if (cheat_list[i].index == idx) break;
+        if (i == cheat_count) {
+            if (cheat_count >= MAX_CHEATS) continue;
+            cheat_list[i].index   = idx;
+            cheat_list[i].enabled = 0;
+            cheat_list[i].desc[0] = 0;
+            cheat_list[i].code[0] = 0;
+            cheat_count++;
+        }
+
+        if (!strcmp(field, "desc")) {
+            strncpy(cheat_list[i].desc, value, sizeof(cheat_list[i].desc) - 1);
+            cheat_list[i].desc[sizeof(cheat_list[i].desc) - 1] = 0;
+        }
+        else if (!strcmp(field, "code")) {
+            strncpy(cheat_list[i].code, value, sizeof(cheat_list[i].code) - 1);
+            cheat_list[i].code[sizeof(cheat_list[i].code) - 1] = 0;
+        }
+        else if (!strcmp(field, "enable")) {
+            cheat_list[i].enabled = !strcmp(value, "true") ? 1 : 0;
+        }
+    }
+    FreeVec(img);
+
+    /* Drop entries with no code line: there is nothing for the emulator to
+     * apply, so offering a checkmark for them would be a lie. Their lines
+     * still survive in the file - cheats_save() copies what it does not own. */
+    for (i = 0, w = 0; i < cheat_count; i++) {
+        if (!cheat_list[i].code[0]) continue;
+        if (w != i) cheat_list[w] = cheat_list[i];
+        w++;
+    }
+    cheat_count = w;
+
+    cheats_status_update();
+}
+
+/* Rewrite the cheatN_enable lines of the loaded .cht.
+ *
+ * Every line this launcher does not own is copied through verbatim. The enable
+ * line of each managed entry is dropped from wherever it was and re-emitted at
+ * the end of that entry's block, because load_cheats_cht() in amiga/main.c
+ * only honours an enable line that follows the cheatN_code line of the same N.
+ *
+ * The whole file is assembled in memory and written with a single Write(), so
+ * there is no window in which a half-rewritten cheat file is on disk.
+ * Returns 1 on success, 0 on failure (nothing is written on failure except in
+ * the case of a short Write(), which the caller reports). */
+static int cheats_save(void)
+{
+    char *img, *pos, *line, *out;
+    char key[64], value[256], eline[48];
+    const char *field;
+    LONG len, outcap, outlen = 0;
+    int cur_idx = -1, cur_slot = -1, need = 0, ovf = 0;
+    int idx = -1, i, is_cheat_line, ok;
+    BPTR f;
+
+    if (!cheat_count || !cheat_path[0] || !cheat_have_file) return 0;
+
+    img = cheat_file_read(cheat_path, &len);
+    if (!img) return 0;
+
+    /* Worst case we add one "cheatNNNNNNNNNN_enable = false\n" per entry
+     * (31 chars) on top of the original, plus a final newline. */
+    outcap = len + (LONG)cheat_count * 32 + 64;
+    out = (char *)AllocVec((ULONG)outcap, MEMF_ANY);
+    if (!out) { FreeVec(img); return 0; }
+
+#define EMIT(s) do {                                                      \
+        LONG _l = (LONG)strlen(s);                                        \
+        if (outlen + _l <= outcap) {                                      \
+            memcpy(out + outlen, (s), (size_t)_l); outlen += _l;          \
+        } else ovf = 1;                                                   \
+    } while (0)
+
+#define FLUSH_ENABLE() do {                                               \
+        if (need && cur_slot >= 0) {                                      \
+            snprintf(eline, sizeof(eline), "cheat%d_enable = %s\n",        \
+                     cheat_list[cur_slot].index,                          \
+                     cheat_list[cur_slot].enabled ? "true" : "false");    \
+            EMIT(eline);                                                  \
+        }                                                                 \
+        need = 0; cur_idx = -1; cur_slot = -1;                            \
+    } while (0)
+
+    pos = img;
+    while ((line = cheat_next_line(&pos)) != NULL) {
+        is_cheat_line = 0;
+        if (line[0] && line[0] != ';' && line[0] != '#' &&
+            cheat_split_kv(line, key, sizeof(key), value, sizeof(value)) &&
+            cheat_parse_key(key, &idx, &field))
+            is_cheat_line = 1;
+
+        /* Anything that is not another line of the current block closes it. */
+        if (!is_cheat_line || idx != cur_idx)
+            FLUSH_ENABLE();
+
+        if (is_cheat_line) {
+            if (idx != cur_idx) {
+                cur_idx  = idx;
+                cur_slot = -1;
+                for (i = 0; i < cheat_count; i++)
+                    if (cheat_list[i].index == idx) { cur_slot = i; break; }
+                need = (cur_slot >= 0);
+            }
+            /* Our own enable line is re-emitted at the end of the block.
+             * An enable line belonging to an index we do not manage is left
+             * exactly where it is. */
+            if (cur_slot >= 0 && !strcmp(field, "enable"))
+                continue;
+        }
+
+        EMIT(line);
+        EMIT("\n");
+    }
+    FLUSH_ENABLE();
+
+#undef FLUSH_ENABLE
+#undef EMIT
+
+    FreeVec(img);
+    if (ovf) { FreeVec(out); return 0; }
+
+    f = Open((STRPTR)cheat_path, MODE_NEWFILE);
+    if (!f) { FreeVec(out); return 0; }
+    ok = (Write(f, out, outlen) == outlen);
+    Close(f);
+    FreeVec(out);
+    if (ok) {
+        cheat_dirty = 0;
+        cheats_status_update();
+    }
+    return ok;
+}
+
+/* ================================================================
  * GUI
  * ================================================================ */
 
@@ -599,14 +975,19 @@ struct AppData {
     Object *cy_paulaboost, *cm_paulastereo, *cm_paulafilter, *cy_ahiboost;
     Object *sl_fmvol, *sl_psgvol;
     Object *cm_hqfm, *cm_hqpsg, *sl_paulamargin, *sl_ahimargin;
+    /* Cheats */
+    Object *lv_cheats, *list_cheats, *tx_cheats, *cm_cheats;
+    Object *bt_cheat_toggle, *bt_cheat_all, *bt_cheat_none;
+    Object *bt_cheat_save, *bt_cheat_reload;
     /* Players */
     Object *str_p1[8], *str_p2[8];
     /* Buttons */
     Object *bt_save, *bt_cancel, *bt_about;
 };
 
+/* One entry per RegisterGroup child, in the same order as the children. */
 static const char *page_titles[] =
-    { "Games","Video","Audio","Player 1","Player 2",NULL };
+    { "Games","Video","Audio","Cheats","Player 1","Player 2",NULL };
 
 static Object *create_gui(struct AppData *d, const Config *c)
 {
@@ -834,6 +1215,52 @@ static Object *create_gui(struct AppData *d, const Config *c)
                         Child, VSpace(0),
                     End, /* Audio */
 
+                    /* ======== CHEATS ======== */
+                    Child, VGroup,
+
+                        Child, HGroup, GroupFrame,
+                            Child, d->cm_cheats = CheckMark(c->cheats),
+                            Child, Label1(STR("Apply cheat files  (Mega Drive only)")),
+                            Child, HSpace(0),
+                        End,
+
+                        Child, d->lv_cheats = ListviewObject,
+                            MUIA_Listview_List, d->list_cheats = ListObject,
+                                InputListFrame,
+                                MUIA_List_DisplayHook, &cheat_disp_hook,
+                                /* Column 0 auto-sizes to the "On" title. */
+                                MUIA_List_Format, STR("BAR,MAXWIDTH=55 BAR,MAXWIDTH=40"),
+                                MUIA_List_Title,  TRUE,
+                            End,
+                        End,
+
+                        Child, d->tx_cheats = TextObject,
+                            MUIA_Text_Contents, STR(cheat_status),
+                            MUIA_Text_SetMin,   FALSE,
+                            TextFrame,
+                        End,
+
+                        Child, HGroup,
+                            Child, d->bt_cheat_toggle = SimpleButton(STR("_Toggle")),
+                            Child, d->bt_cheat_all    = SimpleButton(STR("All O_n")),
+                            Child, d->bt_cheat_none   = SimpleButton(STR("All O_ff")),
+                            Child, d->bt_cheat_reload = SimpleButton(STR("R_eload")),
+                            Child, d->bt_cheat_save   = SimpleButton(STR("Sa_ve Cheats")),
+                        End,
+
+                        Child, TextObject,
+                            MUIA_Text_Contents, STR(
+                                "\033cCheats follow the game picked on the Games page,"
+                                " from PROGDIR:Cheats/<game>.cht\n"
+                                "Double-click or Toggle switches one cheat."
+                                "  Reload writes pending changes, then re-reads the file.\n"
+                                "\033nOnly the cheatN_enable lines are rewritten"
+                                " - codes and descriptions are left alone."),
+                            TextFrame,
+                        End,
+
+                    End, /* Cheats */
+
                     /* ======== PLAYER 1 ======== */
                     Child, VGroup,
                         Child, TextObject,
@@ -977,6 +1404,26 @@ static Object *create_gui(struct AppData *d, const Config *c)
     DoMethod(d->cy_sort, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
              d->app, 2, MUIM_Application_ReturnID, ID_SORT);
 
+    /* There is one .cht per game, so the ROM selection drives the Cheats
+     * page. Notifying on the list rather than on the register group's
+     * MUIA_Group_ActivePage keeps this on documented ground. */
+    DoMethod(d->list_roms, MUIM_Notify, MUIA_List_Active, MUIV_EveryTime,
+             d->app, 2, MUIM_Application_ReturnID, ID_ROMSEL);
+
+    /* Cheat page controls */
+    DoMethod(d->bt_cheat_toggle, MUIM_Notify, MUIA_Pressed, FALSE,
+             d->app, 2, MUIM_Application_ReturnID, ID_CHEAT_TOGGLE);
+    DoMethod(d->lv_cheats, MUIM_Notify, MUIA_Listview_DoubleClick, TRUE,
+             d->app, 2, MUIM_Application_ReturnID, ID_CHEAT_TOGGLE);
+    DoMethod(d->bt_cheat_all, MUIM_Notify, MUIA_Pressed, FALSE,
+             d->app, 2, MUIM_Application_ReturnID, ID_CHEAT_ALL);
+    DoMethod(d->bt_cheat_none, MUIM_Notify, MUIA_Pressed, FALSE,
+             d->app, 2, MUIM_Application_ReturnID, ID_CHEAT_NONE);
+    DoMethod(d->bt_cheat_reload, MUIM_Notify, MUIA_Pressed, FALSE,
+             d->app, 2, MUIM_Application_ReturnID, ID_CHEAT_RELOAD);
+    DoMethod(d->bt_cheat_save, MUIM_Notify, MUIA_Pressed, FALSE,
+             d->app, 2, MUIM_Application_ReturnID, ID_CHEAT_SAVE);
+
     /* List gets keyboard input by default (arrow keys, Return = launch) */
     set(win, MUIA_Window_DefaultObject, (ULONG)d->lv_roms);
 
@@ -1012,6 +1459,7 @@ static void collect(struct AppData *d, Config *c)
     get(d->cm_hqpsg,       MUIA_Selected,      &val); c->hqpsg       =(int)val;
     get(d->sl_paulamargin, MUIA_Numeric_Value, &val); c->paulamargin =(int)val;
     get(d->sl_ahimargin,   MUIA_Numeric_Value, &val); c->ahimargin   =(int)val;
+    get(d->cm_cheats,      MUIA_Selected,      &val); c->cheats      =(int)val;
     get(d->str_paulafreq,   MUIA_String_Contents, &s);
     c->paula_freq   = s ? atoi((char*)s) : 0;
     get(d->str_ahifreq,     MUIA_String_Contents, &s);
@@ -1025,27 +1473,120 @@ static void collect(struct AppData *d, Config *c)
 }
 
 /* ================================================================
+ * CHEATS  -  GUI side
+ * ================================================================ */
+
+static RomEntry *selected_rom(struct AppData *d)
+{
+    ULONG active;
+    RomEntry *entry = NULL;
+
+    get(d->list_roms, MUIA_List_Active, &active);
+    if ((LONG)active < 0) return NULL;
+    DoMethod(d->list_roms, MUIM_List_GetEntry, (ULONG)active, &entry);
+    return entry;
+}
+
+static void cheats_show_status(struct AppData *d)
+{
+    cheats_status_update();
+    set(d->tx_cheats, MUIA_Text_Contents, (ULONG)cheat_status);
+}
+
+static void cheats_rebuild_list(struct AppData *d)
+{
+    CheatEntry *cp;
+    int i;
+
+    set(d->list_cheats, MUIA_List_Quiet, TRUE);
+    DoMethod(d->list_cheats, MUIM_List_Clear);
+    for (i = 0; i < cheat_count; i++) {
+        cp = &cheat_list[i];
+        DoMethod(d->list_cheats, MUIM_List_Insert, &cp, 1,
+                 MUIV_List_Insert_Bottom);
+    }
+    set(d->list_cheats, MUIA_List_Quiet, FALSE);
+    cheats_show_status(d);
+}
+
+/* Write pending toggles out, reporting a failure the user needs to know
+ * about (MODE_NEWFILE has already truncated the file by then). */
+static void cheats_flush(struct AppData *d)
+{
+    if (!cheat_dirty) return;
+    if (!cheats_save())
+        MUI_Request(d->app, d->window, 0, STR("Cheats"), STR("OK"),
+                    STR("Could not write the cheat file:\n%s"), cheat_path);
+}
+
+/* Point the Cheats page at the game selected on the Games page. Pending
+ * toggles for the previous game are written out first, so changing the
+ * selection never discards them. 'force' re-reads the same file again. */
+static void cheats_sync(struct AppData *d, int force)
+{
+    RomEntry *entry = selected_rom(d);
+    char path[sizeof(cheat_path)];
+
+    path[0] = 0;
+    if (entry) cheat_path_for_rom(entry->path, path, sizeof(path));
+    if (!force && !strcmp(path, cheat_path)) return;
+
+    cheats_flush(d);
+    cheats_load(entry ? entry->path : NULL);
+    cheats_rebuild_list(d);
+}
+
+static void cheats_set_all(struct AppData *d, int on)
+{
+    int i;
+
+    if (!cheat_count) return;
+    for (i = 0; i < cheat_count; i++) {
+        if (cheat_list[i].enabled != on) {
+            cheat_list[i].enabled = on;
+            cheat_dirty = 1;
+        }
+    }
+    DoMethod(d->list_cheats, MUIM_List_Redraw, MUIV_List_Redraw_All);
+    cheats_show_status(d);
+}
+
+static void cheats_toggle_active(struct AppData *d)
+{
+    ULONG active;
+    CheatEntry *e = NULL;
+
+    get(d->list_cheats, MUIA_List_Active, &active);
+    if ((LONG)active < 0) return;
+    DoMethod(d->list_cheats, MUIM_List_GetEntry, (ULONG)active, &e);
+    if (!e) return;
+    e->enabled = !e->enabled;
+    cheat_dirty = 1;
+    DoMethod(d->list_cheats, MUIM_List_Redraw, MUIV_List_Redraw_Active);
+    cheats_show_status(d);
+}
+
+/* ================================================================
  * LAUNCH HELPER
  * ================================================================ */
 
 static void launch_game(struct AppData *d, Config *c,
                         const char *progdir, char *cmd, int cmdsz)
 {
-    ULONG active;
-    RomEntry *entry = NULL;
+    RomEntry *entry = selected_rom(d);
 
-    get(d->list_roms, MUIA_List_Active, &active);
-    if ((LONG)active < 0) {
+    if (!entry) {
         MUI_Request(d->app, d->window, 0,
                     STR("Launch"), STR("OK"),
                     STR("Please select a game first."));
         return;
     }
-    DoMethod(d->list_roms, MUIM_List_GetEntry, (ULONG)active, &entry);
-    if (!entry) return;
 
     collect(d, c);
     config_save(NULL, NULL, c);
+    /* The emulator reads the .cht itself, so pending toggles have to be on
+     * disk before it starts or they will not apply to this run. */
+    cheats_flush(d);
     set(d->window, MUIA_Window_Open, FALSE);
     snprintf(cmd, cmdsz, "\"%sGenesisPlusGX\" \"%s\"", progdir, entry->path);
     {
@@ -1102,6 +1643,9 @@ int main(void)
     memset(&disp_hook, 0, sizeof(disp_hook));
     disp_hook.h_Entry    = (HOOKFUNC)HookEntry;
     disp_hook.h_SubEntry = (HOOKFUNC)disp_hook_func;
+    memset(&cheat_disp_hook, 0, sizeof(cheat_disp_hook));
+    cheat_disp_hook.h_Entry    = (HOOKFUNC)HookEntry;
+    cheat_disp_hook.h_SubEntry = (HOOKFUNC)cheat_disp_func;
 
     MUIMasterBase = OpenLibrary(STR(MUIMASTER_NAME), MUIMASTER_VMIN);
     if (!MUIMasterBase) {
@@ -1139,6 +1683,7 @@ int main(void)
     }
 
     rebuild_list(d.list_roms, d.tx_count, "");
+    cheats_sync(&d, 1);
     set(d.window, MUIA_Window_Open, TRUE);
     /* Give the list keyboard focus immediately */
     set(d.window, MUIA_Window_ActiveObject, (ULONG)d.lv_roms);
@@ -1153,6 +1698,7 @@ int main(void)
                 get(d.str_filter, MUIA_String_Contents, &fs);
                 rebuild_list(d.list_roms, d.tx_count,
                              fs ? (const char*)fs : "");
+                cheats_sync(&d, 0);
                 break;
             }
 
@@ -1164,6 +1710,7 @@ int main(void)
                     rebuild_list(d.list_roms, d.tx_count,
                                  fs ? (const char*)fs : "");
                 }
+                cheats_sync(&d, 0);
                 break;
 
             case ID_SORT: {
@@ -1175,8 +1722,52 @@ int main(void)
                 get(d.str_filter, MUIA_String_Contents, &fs);
                 rebuild_list(d.list_roms, d.tx_count,
                              fs ? (const char*)fs : "");
+                cheats_sync(&d, 0);
                 break;
             }
+
+            /* The ROM list rebuilds above can leave rom_list[] reordered
+             * under an unchanged active index, so these go through
+             * cheats_sync() too rather than relying on the notification. */
+            case ID_ROMSEL:
+                cheats_sync(&d, 0);
+                break;
+
+            case ID_CHEAT_TOGGLE:
+                cheats_toggle_active(&d);
+                break;
+
+            case ID_CHEAT_ALL:
+                cheats_set_all(&d, 1);
+                break;
+
+            case ID_CHEAT_NONE:
+                cheats_set_all(&d, 0);
+                break;
+
+            case ID_CHEAT_RELOAD:
+                cheats_sync(&d, 1);
+                break;
+
+            case ID_CHEAT_SAVE:
+                if (!cheat_count) {
+                    MUI_Request(d.app, d.window, 0,
+                                STR("Cheats"), STR("OK"), STR("%s"),
+                                cheat_path[0]
+                                  ? "There are no cheats to save for this game."
+                                  : "Select a game on the Games page first.");
+                } else if (cheats_save()) {
+                    cheats_show_status(&d);
+                    MUI_Request(d.app, d.window, 0,
+                                STR("Cheats"), STR("OK"),
+                                STR("Cheat switches saved to\n%s"), cheat_path);
+                } else {
+                    MUI_Request(d.app, d.window, 0,
+                                STR("Cheats"), STR("OK"),
+                                STR("Could not write the cheat file:\n%s"),
+                                cheat_path);
+                }
+                break;
 
             case ID_LAUNCH:
                 /* running stays TRUE - event loop continues after game exits */
@@ -1283,6 +1874,8 @@ int main(void)
     /* Save config on every exit */
     collect(&d, &c);
     config_save(NULL, NULL, &c);
+    /* Same for any cheat toggle that has not reached the .cht yet. */
+    cheats_flush(&d);
 
     set(d.window, MUIA_Window_Open, FALSE);
     MUI_DisposeObject(d.app);
