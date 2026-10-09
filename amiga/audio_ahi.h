@@ -28,11 +28,6 @@ int ahi_audio_available(void);
 /* Set output volume boost (0=1x, 1=2x, 2=4x, 3=8x, 4=16x) */
 void ahi_set_volume_boost(int boost);
 
-/* Set buffer margin in extra samples beyond samples_per_frame.
- * 0  = exact frame size (WinUAE / any accurate timer - no drops).
- * 220 = 4.99ms margin (PiStorm/Emu68 with timer jitter - prevents chain breaks).
- * Must be called before ahi_audio_init(). */
-void ahi_set_margin(int margin);
 
 /* Return number of buffers currently queued with AHI (0..3) */
 int ahi_audio_queued(void);

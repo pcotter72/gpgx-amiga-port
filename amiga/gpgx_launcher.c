@@ -350,8 +350,8 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     snprintf(line,sizeof(line),"paulafilter=%d\n",c->paulafilter);       WR(line);
     WR("; ahiboost: 0=1x 1=2x 2=4x 3=8x 4=16x\n");
     snprintf(line,sizeof(line),"ahiboost=%d\n",c->ahiboost);             WR(line);
-    WR("; paulamargin/ahimargin: extra buffer samples to absorb timer latency.\n");
-    WR(";   0=none (WinUAE/accurate timer)  200/220=PiStorm/Emu68\n");
+    WR("; paulamargin/ahimargin: obsolete, ignored by the emulator. Audio buffers\n");
+    WR(";   hold exactly one frame and the queue depth is rate-controlled.\n");
     snprintf(line,sizeof(line),"paulamargin=%d\n",c->paulamargin);       WR(line);
     snprintf(line,sizeof(line),"ahimargin=%d\n",  c->ahimargin);         WR(line);
     WR("; hqfm/hqpsg: 1=band-limited synthesis, 0=linear (much faster FM on slow machines)\n");
@@ -1197,7 +1197,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
                         End,
 
                         Child, ColGroup(2), GroupFrame,
-                            MUIA_FrameTitle, STR("Buffer Margin  (0=WinUAE; PiStorm: Paula 200, AHI 220)"),
+                            MUIA_FrameTitle, STR("Buffer Margin  (obsolete - ignored by the emulator)"),
                             Child, Label1(STR("Paula:")),
                             Child, d->sl_paulamargin = SliderObject,
                                 MUIA_Numeric_Min,   0,

@@ -151,7 +151,7 @@ GenesisPlusGX rom.bin -paulafreq=22050 -fps
 | `-paulafilter` | Enable Amiga hardware low-pass filter (LED filter, ~12kHz cutoff) |
 | `-nosound` | Disable audio entirely (maximum speed) |
 
-Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `paulamargin`, `ahimargin`, `hqfm`, `hqpsg`, `screendepth` (see Configuration section).
+Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `hqfm`, `hqpsg`, `screendepth` (see Configuration section).
 
 #### Performance Options
 | Option | Description |
@@ -323,11 +323,8 @@ paulastereo=1
 # AHI volume boost: 0=1x (default), 1=2x, 2=4x, 3=8x
 ahiboost=0
 
-# Buffer margin extra samples to absorb PiStorm timer jitter:
-#   0 = exact (default, correct for WinUAE / accurate timers)
-#   200/220 = for PiStorm/Emu68 where timer.device can fire up to 5ms late
-paulamargin=0
-ahimargin=0
+# paulamargin / ahimargin: obsolete and ignored. Audio buffers now hold
+# exactly one frame and the queue depth is rate-controlled.
 
 # Synthesis quality: 1=band-limited (default), 0=linear interpolation
 # hqfm=0 is one of the biggest CPU savings on Pi 3 / real 68030
@@ -414,7 +411,7 @@ The emulated Genesis audio runs within spec. The relevant clock chain:
 - **Paula clock**: PAL Amiga 3,546,895 Hz / period 86 = **41,242.97 Hz** actual output
 - **Config value** (`paulafreq=41243`): integer truncation gives 41,242 Hz -> **0.0024% error**
 - **blip_buf resampling**: Genesis master clock 53,693,175 Hz resampled to 41,242 Hz; the internal fixed-point ratio is ceiling-rounded -> **+0.0013% additional pitch shift**
-- **Total pitch error**: < **0.003%** - well within spec, absorbed by the 200-sample buffer margin
+- **Total pitch error**: < **0.003%** - well within spec, absorbed by the audio rate control
 
 PSG tone accuracy follows Genesis hardware: the PSG runs from the same master clock and its tone divisors are integer, so pitch errors are hardware-accurate.
 

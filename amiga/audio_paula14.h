@@ -47,10 +47,6 @@ int paula14_audio_get_rate(void);
 /* Set volume boost: 0=1x, 1=2x, 2=4x, 3=8x, 4=16x */
 void paula14_set_volume_boost(int boost);
 
-/* Set buffer margin in extra samples beyond samples_per_frame.
- * 0=WinUAE/accurate timer, 200=PiStorm/Emu68. Must be called before init. */
-void paula14_set_margin(int margin);
-
 /* Return number of buffers currently queued with Paula (0..4) */
 int paula14_audio_queued(void);
 

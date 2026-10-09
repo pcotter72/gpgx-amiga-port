@@ -35,11 +35,6 @@ int paula_audio_get_rate(void);
 /* Set output volume boost for 8-bit conversion (0=1x, 1=2x, 2=4x, 3=8x, 4=16x) */
 void paula_set_volume_boost(int boost);
 
-/* Set buffer margin in extra samples beyond samples_per_frame.
- * 0   = exact frame size (WinUAE / any accurate timer - no queue buildup).
- * 200 = 4.85ms margin (PiStorm/Emu68 - prevents buffer underrun from timer jitter).
- * Must be called before paula_audio_init(). */
-void paula_set_margin(int margin);
 
 /* Enable true stereo output (0=mono, 1=stereo with separate L/R channels) */
 void paula_set_stereo(int stereo);

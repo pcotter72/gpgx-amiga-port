@@ -59,12 +59,6 @@ static int ahi_total = 0;            /* Total frames submitted */
 static int ahi_initialized = 0;
 static int ahi_frequency = 44100;
 
-/* Buffer margin - extra samples appended after each frame's audio.
- * 0   = exact frame size: no queue build-up on WinUAE / accurate timers.
- * 220 = ~4.99ms at 44100Hz: prevents ahir_Link chain breaks on PiStorm/Emu68
- *       where timer.device can fire up to 5ms late.
- * Set via ahi_set_margin() before ahi_audio_init(). */
-static int ahi_margin = 0;
 
 /****************************************************************************
  * Collect completed requests (non-blocking)
@@ -109,15 +103,6 @@ static int ahi_find_free(void)
     return -1;  /* All buffers busy */
 }
 
-/****************************************************************************
- * Set buffer margin (call before ahi_audio_init)
- ****************************************************************************/
-void ahi_set_margin(int margin)
-{
-    if (margin < 0)   margin = 0;
-    if (margin > 882) margin = 882;  /* cap at one PAL frame worth */
-    ahi_margin = margin;
-}
 
 /****************************************************************************
  * Initialize AHI audio
@@ -131,35 +116,14 @@ int ahi_audio_init(int frequency, int stereo, int is_pal)
 
     ahi_frequency = frequency;
 
-    /* Buffer size: 1 frame of audio + optional margin.
-     * Must use correct fps for PAL (50Hz) vs NTSC (60Hz).
-     * PAL frames generate 882 samples at 44100Hz; NTSC generates 735.
-     * Hardcoding /60 on a PAL ROM truncates 131 samples per frame -> crackling.
-     *
-     * ahi_margin controls the extra samples:
-     *   0   = exact frame size. Each buffer lasts exactly one frame (16.67ms NTSC
-     *         / 20ms PAL). No queue build-up; no frame drops on WinUAE or any
-     *         platform with an accurate timer. Default.
-     *   220 = 4.99ms at 44100Hz. For PiStorm/Emu68 where timer.device fires up
-     *         to 5ms late: without this margin the ahir_Link chain breaks ~7% of
-     *         frames causing audible crackling. Set ahimargin=220 in the config.
-     *
-     * WARNING: margin > 0 causes each buffer to outlast its game frame by margin
-     * samples. The audio queue grows by (margin/frequency) seconds per frame and
-     * fills all AHI_NUM_BUFFERS slots in ~(AHI_NUM_BUFFERS * frequency / margin)
-     * frames, after which ~1 in every (frequency/margin + 1) frames is silently
-     * dropped. With margin=220 and 3 buffers this is ~25% drops - perceived as
-     * a 15Hz amplitude trembling. Use margin=0 unless on PiStorm/Emu68. */
+    /* Buffer CAPACITY, not playback length: each request plays exactly
+     * the samples submitted (one frame from main.c). PAL frames are 882
+     * samples at 44100 Hz, NTSC 735, so the fps must follow the game.
+     * +3% +16 covers blip_buf rounding (a few samples over freq/fps) and
+     * main.c's rate control, which stretches a frame by up to ~1.2%. */
     fps = is_pal ? 50 : 60;
     samples_per_frame = (frequency + fps - 1) / fps;
-
-    /* +4 blip_buf rounding headroom (same as the Paula backends): the core
-     * runs at the exact Genesis frame rate (59.9224 Hz NTSC), so blip_buf
-     * delivers slightly MORE samples per frame than frequency/60 - e.g. 736
-     * at 44100 Hz vs the 735 computed above. Without this headroom the last
-     * 1-2 samples were clamped off nearly every frame (waveform skip at
-     * each buffer boundary). */
-    ahi_buf_max_samples = samples_per_frame + 4 + ahi_margin;
+    ahi_buf_max_samples = (samples_per_frame * 103) / 100 + 16;
     ahi_buf_max_bytes = ahi_buf_max_samples * 4; /* 16-bit stereo */
 
     for (i = 0; i < AHI_NUM_BUFFERS; i++)
@@ -346,9 +310,12 @@ void ahi_audio_submit(short *samples, int count)
         return;
     }
 
-    /* Limit to buffer capacity */
+    /* Limit to buffer capacity. Each request plays exactly count samples:
+     * no tail padding, which made every buffer outlast its frame. */
     if (count > ahi_buf_max_samples)
         count = ahi_buf_max_samples;
+    if (count < 1)
+        return;
 
     bytes = count * 4;
 
@@ -375,29 +342,12 @@ void ahi_audio_submit(short *samples, int count)
         CopyMem(samples, ahi_buffer[buf], bytes);
     }
 
-    /* Pad tail with last stereo sample pair to fill buffer to ahi_buf_max_samples.
-     * Only runs when ahi_margin > 0 (count < ahi_buf_max_samples).
-     * Holds the last sample so the margin region is smooth audio, not silence,
-     * preventing a DC-step click at buffer boundaries on PiStorm/Emu68. */
-    if (count < ahi_buf_max_samples)
-    {
-        short *dst = (short *)ahi_buffer[buf];
-        short last_l = dst[count * 2 - 2];
-        short last_r = dst[count * 2 - 1];
-        int i;
-        for (i = count; i < ahi_buf_max_samples; i++)
-        {
-            dst[i * 2]     = last_l;
-            dst[i * 2 + 1] = last_r;
-        }
-    }
-
     /* Setup IO request */
     io = ahi_req[buf];
     io->ahir_Std.io_Message.mn_Node.ln_Pri = 0;
     io->ahir_Std.io_Command = CMD_WRITE;
     io->ahir_Std.io_Data = ahi_buffer[buf];
-    io->ahir_Std.io_Length = ahi_buf_max_bytes;
+    io->ahir_Std.io_Length = bytes;
     io->ahir_Std.io_Offset = 0;
     io->ahir_Type = AHIST_S16S;
     io->ahir_Frequency = ahi_frequency;

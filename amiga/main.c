@@ -871,7 +871,7 @@ static int timer_init(void)
     TimerBase = timer_req->tr_node.io_Device;
     timer_open = 1;
 
-    /* Cache EClock frequency - used by eclock_us_since() / timer_wait_frame() */
+    /* Cache EClock frequency - used by eclock_us_since() / timer_wait_until() */
     {
         struct EClockVal ev;
         eclock_freq = ReadEClock(&ev);
@@ -945,54 +945,150 @@ static ULONG eclock_diff_us(struct EClockVal *a, struct EClockVal *b)
 }
 
 /****************************************************************************
- * Hybrid frame limiter: coarse timer.device sleep + EClock busy-spin.
+ * Full 64-bit EClock value as a double tick count. Exact for any realistic
+ * uptime (2^53 ticks at ~709 kHz is centuries), and lets the frame schedule
+ * carry fractional ticks so its average period is exact.
+ ****************************************************************************/
+static double eclock_ticks(const struct EClockVal *v)
+{
+    return (double)v->ev_hi * 4294967296.0 + (double)v->ev_lo;
+}
+
+/****************************************************************************
+ * Frame limiter: wait until an absolute EClock deadline.
  *
- * Problem: timer.device DoIO fires up to 5ms late on PiStorm/Emu68,
- * causing frame overruns and audio underruns requiring paulamargin > 0.
+ * Coarse timer.device sleep until BUSYSPIN_US before the deadline, then an
+ * EClock busy-spin for the rest. timer.device DoIO can fire several ms late
+ * on PiStorm/Emu68; the busy-spin margin absorbs that.
  *
- * Solution: sleep until (target - BUSYSPIN_US) via timer.device, then
- * busy-spin the remainder using ReadEClock for sub-millisecond accuracy.
- *
- * BUSYSPIN_US=3000: worst-case busy-spin = 3ms + 5ms jitter = 8ms.
- * In practice emulation consumes 12-15ms of a 16.67ms NTSC frame, leaving
- * 2-5ms remainder - so busy-spin is typically 0-3ms.
- * On WinUAE/accurate timers timer fires on time; busy-spin is ~0ms.
+ * The caller keeps an absolute schedule (deadline += period every frame),
+ * so whatever a wait overshoots is taken off the next wait instead of being
+ * lost. The previous limiter waited a fixed time from each frame's own
+ * start: measured on target (2026-10-09) every frame then ran 110-172 us
+ * long, varying from run to run, and the audio queue drifted with it.
  ****************************************************************************/
 #define BUSYSPIN_US 3000
 
-static void timer_wait_frame(struct EClockVal *start, ULONG target_us)
+static void timer_wait_until(double deadline)
 {
-    ULONG target_ticks;
-    ULONG elapsed_ticks, elapsed_us;
     struct EClockVal now;
+    double remain_us;
 
     if (!timer_open || !eclock_freq)
         return;
 
-    target_ticks = (ULONG)((double)target_us * (double)eclock_freq / 1000000.0);
-
     /* Phase 1: coarse sleep via timer.device until within BUSYSPIN_US */
     ReadEClock(&now);
-    elapsed_ticks = now.ev_lo - start->ev_lo;
-    elapsed_us    = (ULONG)((double)elapsed_ticks * 1000000.0 / (double)eclock_freq);
-
-    if (elapsed_us + BUSYSPIN_US < target_us)
+    remain_us = (deadline - eclock_ticks(&now)) * 1000000.0 / (double)eclock_freq;
+    if (remain_us > (double)(BUSYSPIN_US + 500))
     {
-        ULONG sleep_us = target_us - BUSYSPIN_US - elapsed_us;
-        if (sleep_us > 500)
-        {
-            timer_req->tr_node.io_Command = TR_ADDREQUEST;
-            timer_req->tr_time.tv_secs    = sleep_us / 1000000;
-            timer_req->tr_time.tv_micro   = sleep_us % 1000000;
-            DoIO((struct IORequest *)timer_req);
-        }
+        ULONG sleep_us = (ULONG)(remain_us - (double)BUSYSPIN_US);
+        timer_req->tr_node.io_Command = TR_ADDREQUEST;
+        timer_req->tr_time.tv_secs    = sleep_us / 1000000;
+        timer_req->tr_time.tv_micro   = sleep_us % 1000000;
+        DoIO((struct IORequest *)timer_req);
     }
 
-    /* Phase 2: busy-spin to exact target tick */
+    /* Phase 2: busy-spin to the deadline */
     do {
         ReadEClock(&now);
-        elapsed_ticks = now.ev_lo - start->ev_lo;
-    } while (elapsed_ticks < target_ticks);
+    } while (eclock_ticks(&now) < deadline);
+}
+
+/****************************************************************************
+ * Audio rate control helpers (used by the main loop's audio submit).
+ *
+ * The audio backends play exactly the samples they are given; nothing pads
+ * a buffer any more. Two things are done here, once, for every backend:
+ *
+ *  - Odd-sample carry. Paula's CMD_WRITE needs an even length (RKRM Devices,
+ *    CMD_WRITE: "must be an even number"), so when a frame leaves an odd
+ *    total, its last stereo sample is held back and played first next frame.
+ *    Nothing is dropped and nothing is repeated.
+ *
+ *  - Rate control. Production and consumption should balance exactly, but a
+ *    stall (disk access, a slow frame) or clock tolerance moves the queue
+ *    depth, and nothing would ever move it back. So the depth is measured
+ *    before each submit: below the target the frame is stretched by ~0.6%,
+ *    above it shrunk by the same, and at the target it is left untouched.
+ *    In steady state it never acts, so there is no pitch change at all.
+ ****************************************************************************/
+#define AUDIO_TARGET_DEPTH 2
+
+static short audio_out[(AUDIO_SAMPLES + 8) * 2];  /* carry + one frame */
+static short audio_carry[2];
+static int   audio_carry_valid = 0;
+
+/* Linear-interpolation resample of interleaved 16-bit stereo, n_in -> n_out
+ * sample pairs. First and last samples map exactly, so consecutive frames
+ * still join without a step. Only used for the small corrections above. */
+static void audio_resample(const short *in, int n_in, short *out, int n_out)
+{
+    ULONG step, pos;
+    LONG a, b, frac;
+    int i, idx;
+
+    if (n_in < 2 || n_out < 2)
+    {
+        for (i = 0; i < n_out; i++)
+        {
+            idx = (i < n_in) ? i : n_in - 1;
+            out[i * 2]     = in[idx * 2];
+            out[i * 2 + 1] = in[idx * 2 + 1];
+        }
+        return;
+    }
+
+    step = ((ULONG)(n_in - 1) << 16) / (ULONG)(n_out - 1);
+    pos  = 0;
+    for (i = 0; i < n_out - 1; i++, pos += step)
+    {
+        idx  = (int)(pos >> 16);
+        if (idx > n_in - 2) idx = n_in - 2;
+        /* 15-bit fraction: |b - a| <= 65535, so the product stays below 2^31 */
+        frac = (LONG)((pos >> 1) & 0x7FFF);
+        a = in[idx * 2];     b = in[idx * 2 + 2];
+        out[i * 2]     = (short)(a + (((b - a) * frac) >> 15));
+        a = in[idx * 2 + 1]; b = in[idx * 2 + 3];
+        out[i * 2 + 1] = (short)(a + (((b - a) * frac) >> 15));
+    }
+    out[(n_out - 1) * 2]     = in[(n_in - 1) * 2];
+    out[(n_out - 1) * 2 + 1] = in[(n_in - 1) * 2 + 1];
+}
+
+/* Build this frame's output in audio_out: carry first, then the frame
+ * (resampled to n_frame pairs if that differs from n_in). Returns the even
+ * number of pairs to play and leaves any odd last pair as the new carry. */
+static int audio_prepare(const short *in, int n_in, int n_frame)
+{
+    int pos = 0, total, play;
+
+    if (n_in < 0) n_in = 0;
+    if (n_frame > AUDIO_SAMPLES) n_frame = AUDIO_SAMPLES;
+    if (n_in == 0) n_frame = 0;
+
+    if (audio_carry_valid)
+    {
+        audio_out[0] = audio_carry[0];
+        audio_out[1] = audio_carry[1];
+        pos = 1;
+    }
+    if (n_frame == n_in)
+        memcpy(&audio_out[pos * 2], in, (size_t)n_in * 2 * sizeof(short));
+    else if (n_frame > 0)
+        audio_resample(in, n_in, &audio_out[pos * 2], n_frame);
+
+    total = pos + n_frame;
+    play  = total & ~1;
+    if (total & 1)
+    {
+        audio_carry[0] = audio_out[(total - 1) * 2];
+        audio_carry[1] = audio_out[(total - 1) * 2 + 1];
+        audio_carry_valid = 1;
+    }
+    else
+        audio_carry_valid = 0;
+    return play;
 }
 
 /****************************************************************************
@@ -1383,8 +1479,8 @@ typedef struct
     int paulaboost;     /* Paula 8-bit volume boost: 0-4 (0=1x, 1=2x, 2=4x, 3=8x, 4=16x) */
     int paulastereo;    /* Paula stereo output: 0=mono, 1=stereo */
     int ahiboost;       /* AHI 16-bit volume boost: 0-4 (0=1x, 1=2x, 2=4x, 3=8x, 4=16x) */
-    int ahimargin;      /* AHI buffer margin in samples: 0=WinUAE/accurate timer, 220=PiStorm */
-    int paulamargin;    /* Paula buffer margin in samples: 0=WinUAE/accurate timer, 200=PiStorm */
+    int ahimargin;      /* Obsolete, ignored: buffers are exact-length and the */
+    int paulamargin;    /* queue depth is rate-controlled (2026-10). Still parsed. */
     int autoskip;       /* Dynamic frame skip: 1=auto (skip render when behind), 0=off */
     int hqfm;           /* High quality FM synthesis: 1=band-limited (default), 0=linear (much faster) */
     int hqpsg;          /* High quality PSG: 1=band-limited (default), 0=linear (faster) */
@@ -1433,8 +1529,8 @@ static void config_set_defaults(config_file_t *cfg)
                           /* 0=no boost leaves audio at only ~34% of 8-bit range (poor SNR) */
     cfg->paulastereo = 1;
     cfg->ahiboost = 0;    /* 0=no boost: with fmvol=60 16-bit signal is already at good level */
-    cfg->ahimargin = 0;   /* 0=exact frame size (WinUAE); set 220 for PiStorm/Emu68 AHI */
-    cfg->paulamargin = 0; /* 0=exact frame size (WinUAE); set 200 for PiStorm/Emu68 Paula */
+    cfg->ahimargin = 0;
+    cfg->paulamargin = 0;
     cfg->autoskip = 1;        /* Dynamic frame skip on by default */
     cfg->hqfm = 1;            /* Band-limited FM; set 0 on slow machines (Pi 3, real 68030) */
     cfg->hqpsg = 1;           /* Band-limited PSG */
@@ -1800,13 +1896,8 @@ static void config_save_default(void)
             "paulaboost=1\n"
             "paulastereo=1\n"
             "ahiboost=0\n"
-            "; paulamargin/ahimargin: buffer margin in extra samples.\n"
-            ";   0   = exact frame size. Use on WinUAE or any accurate timer (no drops).\n"
-            ";   200/220 = ~5ms margin. Use on PiStorm/Emu68 to prevent buffer underrun\n"
-            ";             from timer jitter. WARNING: causes ~22-25% audio frame drops\n"
-            ";             on accurate timers, perceived as 15Hz trembling.\n"
-            "paulamargin=0\n"
-            "ahimargin=0\n"
+            "; paulamargin/ahimargin: obsolete and ignored. Audio buffers now hold\n"
+            ";   exactly one frame and the queue depth is rate-controlled.\n"
             "\n"
             "; cheats: 1=apply PROGDIR:Cheats/<romname>.cht when one exists, 0=ignore it.\n"
             ";   Mega Drive / Genesis only. Individual codes are switched with the\n"
@@ -2012,6 +2103,7 @@ int main(int argc, char *argv[])
             show_fps_counter = 1;
         }
     }
+
     
     /* Set scanline mode before video init */
     
@@ -2132,7 +2224,13 @@ int main(int argc, char *argv[])
             ULONG pclk = amiga_hw_pal ? 3546895UL : 3579545UL;
             core_freq = (int)(pclk / 128);
         }
-        audio_init(core_freq, 0.0);
+        /* Produce samples for 60/50 Hz frames - the rate the frame limiter
+         * runs at. 0.0 would mean the exact console rate (59.92/49.70 Hz,
+         * core/system.c audio_set_rate()), i.e. 0.13%/0.6% more audio than
+         * real time and a queue that overflows. Pitch rises by the same
+         * 0.13%/0.6% (~2/10 cents); game speed is unchanged, it already ran
+         * at 60/50 Hz. */
+        audio_init(core_freq, vdp_pal ? 50.0 : 60.0);
     }
     
     /* Reset system */
@@ -2158,6 +2256,7 @@ int main(int argc, char *argv[])
     /* Update bitmap to use video buffer */
     bitmap.pitch = video_cgx_get_pitch();
     bitmap.data = video_cgx_get_buffer();
+
     
     /* Clear the screen to black before starting */
     video_cgx_clear();
@@ -2191,7 +2290,6 @@ int main(int argc, char *argv[])
     else if (use_ahi)
     {
         /* AHI: configurable frequency stereo */
-        ahi_set_margin(cfg.ahimargin);
         if (!ahi_audio_init(ahi_freq, 1, vdp_pal))
         {
             printf("Warning: AHI audio not available\n");
@@ -2206,13 +2304,11 @@ int main(int argc, char *argv[])
     else if (use_14bit)
     {
         /* Paula 14-bit: True stereo, ~10-12 bit effective resolution */
-        paula14_set_margin(cfg.paulamargin);
         if (!paula14_audio_init(paula_freq, amiga_hw_pal, vdp_pal))
         {
             printf("Warning: Paula 14-bit audio not available\n");
             /* Fall back to 8-bit */
             audio_use_14bit = 0;
-            paula_set_margin(cfg.paulamargin);
             if (!paula_audio_init(paula_freq, amiga_hw_pal, vdp_pal))
             {
                 printf("Warning: Paula audio not available\n");
@@ -2230,7 +2326,6 @@ int main(int argc, char *argv[])
     else
     {
         /* Paula 8-bit mono: Direct hardware DMA (lowest CPU overhead) */
-        paula_set_margin(cfg.paulamargin);
         if (!paula_audio_init(paula_freq, amiga_hw_pal, vdp_pal))
         {
             printf("Warning: Paula audio not available\n");
@@ -2314,13 +2409,14 @@ int main(int argc, char *argv[])
         }
         else if (audio_use_14bit && paula14_audio_available())
         {
-            prime_samples = paula14_audio_get_rate() / (vdp_pal ? 50 : 60);
+            /* Even: Paula buffers are exact-length and CMD_WRITE needs it */
+            prime_samples = (paula14_audio_get_rate() / (vdp_pal ? 50 : 60)) & ~1;
             paula14_audio_submit(audio_buffer, prime_samples);
             paula14_audio_submit(audio_buffer, prime_samples);
         }
         else if (paula_audio_available())
         {
-            prime_samples = paula_audio_get_rate() / (vdp_pal ? 50 : 60);
+            prime_samples = (paula_audio_get_rate() / (vdp_pal ? 50 : 60)) & ~1;
             paula_audio_submit(audio_buffer, prime_samples);
             paula_audio_submit(audio_buffer, prime_samples);
         }
@@ -2334,13 +2430,63 @@ int main(int argc, char *argv[])
         ULONG frame_time_us = vdp_pal ? 20000 : 16667;  /* 50Hz=20ms, 60Hz=16.67ms */
         int skip_next_render = 0;  /* Auto-skip: 1 = skip next frame's render */
         int auto_skip_count = 0;   /* Consecutive skips so far */
-        /* EClock-based frame timing */
+        /* EClock frame timing: an absolute schedule (see timer_wait_until()).
+         * The period is exactly 1/60 s or 1/50 s, matching audio_init(). */
         struct EClockVal ev_frame_start;
-        
+        double frame_period_ticks = 0.0;
+        double next_deadline = 0.0;
+        ULONG sched_resyncs = 0;            /* long stalls the schedule skipped */
+        /* Audio queue statistics, printed when the emulator exits. Depth is
+         * the number of buffers still playing just before a frame's audio is
+         * submitted: 0 means the queue ran dry (an audible gap), and a full
+         * queue means that frame's audio was thrown away. Counted here, not in
+         * the backends, because this loop checks *_available() first, so a
+         * backend never sees the frames it is not given. */
+        ULONG aud_frames = 0, aud_dropped = 0, aud_dry = 0;
+        ULONG aud_first_drop = 0;           /* 1-based frame number, 0 = none */
+        ULONG aud_depth[5];                 /* Paula: 0..4, AHI: 0..3 */
+        ULONG aud_stretch = 0, aud_shrink = 0;  /* rate-control corrections */
+        struct EClockVal ev_run_start;
+        /* Frame timing statistics, printed with the audio ones. "Emulation"
+         * is input + core + audio, "video" is the blit and any wait inside
+         * ChangeScreenBuffer(). Sums are doubles: ULONG microsecond sums
+         * overflow in ~1 h. */
+        struct EClockVal ev_mid;
+        double ft_emu_sum = 0.0, ft_vid_sum = 0.0;
+        ULONG ft_emu_max = 0, ft_vid_max = 0, ft_over = 0, ft_frames = 0;
+        ULONG ft_emu_us = 0;
+        /* Start-to-start frame period: shows wait overshoot and stalls that
+         * the work time alone cannot see. */
+        struct EClockVal ev_prev_start;
+        int ft_have_prev = 0;
+        ULONG ft_period_max = 0, ft_late = 0;
+
+        memset(aud_depth, 0, sizeof(aud_depth));
+        if (eclock_freq)
+        {
+            ReadEClock(&ev_run_start);
+            frame_period_ticks = (vdp_pal ? 0.020 : 1.0 / 60.0) * (double)eclock_freq;
+            next_deadline = eclock_ticks(&ev_run_start) + frame_period_ticks;
+        }
+
         while (running)
         {
             /* Record frame start for EClock timing */
             ReadEClock(&ev_frame_start);
+
+            if (eclock_freq)
+            {
+                if (ft_have_prev)
+                {
+                    ULONG period_us = eclock_diff_us(&ev_prev_start, &ev_frame_start);
+                    if (period_us > ft_period_max)
+                        ft_period_max = period_us;
+                    if (period_us > frame_time_us + 1000)
+                        ft_late++;
+                }
+                ev_prev_start = ev_frame_start;
+                ft_have_prev = 1;
+            }
 
             /* Process Amiga input events */
             if (input_amiga_process(win))
@@ -2438,23 +2584,87 @@ int main(int argc, char *argv[])
              * buffer underrun (trembling/stuttering). */
             if (!audio_disabled)
             {
+                int depth, sent = 0, n_frame, play;
+
                 audio_samples = audio_update(audio_buffer);
 
                 if (audio_use_ahi)
-                {
-                    if (ahi_audio_available())
-                        ahi_audio_submit(audio_buffer, audio_samples);
-                }
+                    depth = ahi_audio_queued();
                 else if (audio_use_14bit)
+                    depth = paula14_audio_queued();
+                else
+                    depth = paula_audio_queued();
+
+                /* Rate control: nudge the frame length while the queue is
+                 * off target, ~0.6% per frame (twice that once it has run
+                 * dry). At the target nothing is resampled. */
+                n_frame = audio_samples;
+                if (depth != AUDIO_TARGET_DEPTH && audio_samples > 1)
                 {
-                    if (paula14_audio_available())
-                        paula14_audio_submit(audio_buffer, audio_samples);
+                    int adj = (audio_samples + 199) / 200;
+                    if (depth == 0)
+                        adj *= 2;
+                    if (depth < AUDIO_TARGET_DEPTH)
+                    {
+                        n_frame = audio_samples + adj;
+                        aud_stretch++;
+                    }
+                    else
+                    {
+                        n_frame = audio_samples - adj;
+                        aud_shrink++;
+                    }
+                }
+                play = audio_prepare(audio_buffer, audio_samples, n_frame);
+
+                if (play > 0)
+                {
+                    if (audio_use_ahi)
+                    {
+                        if (ahi_audio_available())
+                        {
+                            ahi_audio_submit(audio_out, play);
+                            sent = 1;
+                        }
+                    }
+                    else if (audio_use_14bit)
+                    {
+                        if (paula14_audio_available())
+                        {
+                            paula14_audio_submit(audio_out, play);
+                            sent = 1;
+                        }
+                    }
+                    else
+                    {
+                        if (paula_audio_available())
+                        {
+                            paula_audio_submit(audio_out, play);
+                            sent = 1;
+                        }
+                    }
                 }
                 else
+                    sent = 1;   /* nothing to play yet (carry only) */
+
+                aud_frames++;
+                if (depth < 0) depth = 0;
+                if (depth > 4) depth = 4;
+                aud_depth[depth]++;
+                if (depth == 0)
+                    aud_dry++;
+                if (!sent)
                 {
-                    if (paula_audio_available())
-                        paula_audio_submit(audio_buffer, audio_samples);
+                    aud_dropped++;
+                    if (!aud_first_drop)
+                        aud_first_drop = (ULONG)frame_count + 1;
                 }
+            }
+
+            if (eclock_freq)
+            {
+                ReadEClock(&ev_mid);
+                ft_emu_us = eclock_diff_us(&ev_frame_start, &ev_mid);
             }
 
             /* Update display - only when not skipping */
@@ -2508,25 +2718,105 @@ int main(int argc, char *argv[])
             /* Update FPS counter */
             video_cgx_update_fps();
 
-            /* Frame timing: EClock hybrid limiter - coarse timer.device sleep
-             * to yield CPU, then busy-spin the last BUSYSPIN_US us. */
+            /* Frame timing: absolute EClock schedule. A frame that runs past
+             * its deadline does not wait, and the next deadline stays where
+             * it was, so short overruns and wait overshoot are won back. */
             {
                 ULONG elapsed_us = eclock_us_since(&ev_frame_start);
-                if (elapsed_us >= frame_time_us)
+
+                if (eclock_freq)
                 {
-                    if (use_autoskip)
-                        skip_next_render = 1;
-                }
-                else
-                {
-                    timer_wait_frame(&ev_frame_start, frame_time_us);
+                    struct EClockVal ev_now;
+                    double now_t;
+                    ULONG vid_us = (elapsed_us > ft_emu_us) ? elapsed_us - ft_emu_us : 0;
+
+                    ft_frames++;
+                    ft_emu_sum += (double)ft_emu_us;
+                    ft_vid_sum += (double)vid_us;
+                    if (ft_emu_us > ft_emu_max) ft_emu_max = ft_emu_us;
+                    if (vid_us > ft_vid_max)    ft_vid_max = vid_us;
+                    if (elapsed_us >= frame_time_us)
+                        ft_over++;
+
+                    ReadEClock(&ev_now);
+                    now_t = eclock_ticks(&ev_now);
+                    if (now_t >= next_deadline)
+                    {
+                        if (use_autoskip)
+                            skip_next_render = 1;
+                        /* A long stall (disk access, requester, state save)
+                         * is skipped rather than caught up at full speed. */
+                        if (now_t - next_deadline > 4.0 * frame_period_ticks)
+                        {
+                            next_deadline = now_t;
+                            sched_resyncs++;
+                        }
+                    }
+                    else
+                        timer_wait_until(next_deadline);
+                    next_deadline += frame_period_ticks;
                 }
             }
             
             frame_count++;
         }
+
+        /* Exit summary. Integer-only output: nothing else in this program
+         * prints floating point through libnix's printf. */
+        {
+            double secs = 0.0;
+
+            if (eclock_freq)
+            {
+                struct EClockVal ev_run_end;
+
+                ReadEClock(&ev_run_end);
+                /* Full 64-bit difference: the 32-bit eclock_* helpers wrap
+                 * after ~6053 s, and a play session can run longer. */
+                secs = (eclock_ticks(&ev_run_end) - eclock_ticks(&ev_run_start))
+                       / (double)eclock_freq;
+            }
+
+            if (aud_frames)
+            {
+                printf("\nAudio: %lu frames", aud_frames);
+                if (secs >= 1.0)
+                {
+                    ULONG dpm10 = (ULONG)((double)aud_dropped * 600.0 / secs + 0.5);
+                    printf(" in %lu s, %lu dropped (%lu.%lu/min)",
+                           (ULONG)(secs + 0.5), aud_dropped, dpm10 / 10, dpm10 % 10);
+                }
+                else
+                    printf(", %lu dropped", aud_dropped);
+                if (aud_first_drop)
+                    printf(", first at frame %lu", aud_first_drop);
+                printf(", %lu ran dry\n", aud_dry);
+                printf("Audio: buffers queued before submit  0:%lu 1:%lu 2:%lu 3:%lu 4:%lu\n",
+                       aud_depth[0], aud_depth[1], aud_depth[2],
+                       aud_depth[3], aud_depth[4]);
+                printf("Audio: rate control stretched %lu frames, shrank %lu\n",
+                       aud_stretch, aud_shrink);
+            }
+            if (ft_frames)
+            {
+                ULONG emu_avg = (ULONG)(ft_emu_sum / (double)ft_frames + 0.5);
+                ULONG vid_avg = (ULONG)(ft_vid_sum / (double)ft_frames + 0.5);
+                ULONG over_pct10 = (ULONG)((double)ft_over * 1000.0 / (double)ft_frames + 0.5);
+                /* Schedule drift: real time minus frames * exact period.
+                 * ~0 means the average frame rate is exactly 60/50 Hz. */
+                LONG drift_ms = (LONG)((secs - (double)ft_frames * frame_period_ticks
+                                        / (double)eclock_freq) * 1000.0);
+
+                printf("Frames: budget %lu us, average emulation %lu us + video %lu us\n",
+                       frame_time_us, emu_avg, vid_avg);
+                printf("Frames: max emulation %lu us, max video %lu us, %lu over budget (%lu.%lu%%)\n",
+                       ft_emu_max, ft_vid_max, ft_over, over_pct10 / 10, over_pct10 % 10);
+                printf("Frames: start-to-start max %lu us, %lu frames >1 ms late, schedule drift %ld ms, %lu resyncs\n",
+                       ft_period_max, ft_late, drift_ms, sched_resyncs);
+            }
+        }
     }
-    
+
     printf("\n");
 
     /* Save SRAM battery backup */

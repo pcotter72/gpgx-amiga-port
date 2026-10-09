@@ -85,7 +85,6 @@ static ULONG paula_freq = 22050;
 static ULONG paula_buflen = 0;
 static UWORD paula_period = 0;
 static int paula_is_pal = 1;
-static int paula_margin = 0;  /* extra samples beyond frame; 0=WinUAE, 200=PiStorm */
 
 /* Conversion buffer for 16-bit stereo to 8-bit mono */
 static BYTE *convert_buffer = NULL;
@@ -158,28 +157,16 @@ int paula_audio_init(int frequency, int hw_pal, int game_pal)
     paula_period = period;
     paula_freq = paula_clock / period;  /* Actual achieved frequency */
 
-    /* Use nominal fps (50/60) for buffer sizing.
-     * Genesis actual fps (49.701/59.922) would oversize the buffer by ~4 samples,
-     * causing more frequent silent drops (~every 16s vs ~every 6min).
-     * With drop-on-full and last-sample tail padding neither causes audible
-     * artifacts, but nominal fps keeps the buffer tight and drops rare. */
+    /* Nominal 50/60 fps: main.c paces frames at exactly that rate and has
+     * the core produce samples for it (audio_init(f, 50.0/60.0)). */
     fps_exact = game_pal ? 50.0 : 60.0;
 
-    /* Buffer size: samples per frame + margin.
-     *
-     *   4.5          = blip_buf rounding (occasionally produces 1-4 extra samples)
-     *   paula_margin = timer latency margin (see paula_set_margin())
-     *
-     * Default (margin=0): buffer ~ samples_per_frame + 4.5 ~ 692 samples (NTSC,
-     * 41242Hz) = 16.78ms. Minimal excess (0.11ms/frame) -> queue fills in ~610 frames
-     * (~10s) causing one silent drop, then resets. Inaudible.
-     *
-     * margin=200: 892 samples (NTSC) = 21.62ms. For PiStorm/Emu68 where timer.device
-     * spikes to >5ms late. WARNING: excess of 4.96ms/frame fills 4-buffer queue in
-     * ~17 frames, then drops ~22% of audio frames -> audible 15Hz trembling.
-     * Only use on PiStorm/Emu68. */
+    /* Buffer CAPACITY, not playback length: each CMD_WRITE plays exactly
+     * the samples submitted (main.c passes one frame, always an even count).
+     * +3% +16 covers blip_buf rounding (a few samples over freq/fps) and
+     * main.c's rate control, which stretches a frame by up to ~1.2%. */
     samples_per_frame = (double)paula_freq / fps_exact;
-    paula_buflen = (ULONG)(samples_per_frame + 4.5 + (double)paula_margin);
+    paula_buflen = (ULONG)(samples_per_frame * 1.03 + 16.0);
     paula_buflen = (paula_buflen + 1) & ~1;  /* Word-align for DMA */
 
     /* Create message port */
@@ -419,13 +406,6 @@ void paula_audio_shutdown(void)
 int paula_volume_boost = 0;  /* shift left by N = multiply by 2^N */
                               /* 0=1x, 1=2x, 2=4x, 3=8x */
 
-void paula_set_margin(int margin)
-{
-    if (margin < 0)   margin = 0;
-    if (margin > 882) margin = 882;
-    paula_margin = margin;
-}
-
 void paula_set_volume_boost(int boost)
 {
     if (boost < 0) boost = 0;
@@ -565,81 +545,63 @@ void paula_audio_submit(signed short *buffer, int samples)
         paula_current = (paula_current + 1) % PAULA_NUM_BUFFERS;
         return;
     }
-    paula_dbg_submitted++;
-
     /* --- Fill the chosen slot --- */
     io_left  = paula_io_left[fill_buf];
     io_right = paula_io_right[fill_buf];
     buf      = paula_buf[fill_buf];
 
+    /* Exactly the samples given. main.c always passes an even count (it
+     * carries an odd last sample into the next frame); the checks below only
+     * guard against a caller that does not. */
     samples_to_output = samples;
     if (samples_to_output > (int)paula_buflen)
-        samples_to_output = (int)paula_buflen;
-    if (samples_to_output < 2)
-        samples_to_output = 2;
-    samples_to_output = samples_to_output & ~1;  /* Keep even for DMA */
+        samples_to_output = (int)paula_buflen;     /* capacity */
+    samples_to_output &= ~1;                       /* CMD_WRITE needs even */
+    if (!buffer || samples_to_output < 2)
+        return;                                    /* slot stays free */
 
-    if (buffer && samples_to_output > 0)
+    if (paula_stereo)
     {
-        if (paula_stereo)
-        {
-            BYTE *buf_r = paula_buf_right[fill_buf];
+        BYTE *buf_r = paula_buf_right[fill_buf];
 #ifdef USE_ASM_AUDIO
+        {
+            BYTE *dl = fast_buf_left  ? fast_buf_left  : buf;
+            BYTE *dr = fast_buf_right ? fast_buf_right : buf_r;
+            ConvertStereo8_asm(buffer, dl, dr, samples_to_output);
+            if (fast_buf_left)
             {
-                BYTE *dl = fast_buf_left  ? fast_buf_left  : buf;
-                BYTE *dr = fast_buf_right ? fast_buf_right : buf_r;
-                ConvertStereo8_asm(buffer, dl, dr, samples_to_output);
-                if (fast_buf_left)
-                {
-                    CopyMem(fast_buf_left,  buf,   samples_to_output);
-                    CopyMem(fast_buf_right, buf_r, samples_to_output);
-                }
-            }
-#else
-            convert_16bit_stereo_to_8bit_stereo(buffer, buf, buf_r, samples_to_output);
-#endif
-            /* Pad tail with last sample value to avoid DC step click at
-             * buffer boundary (ioa_Length = paula_buflen, fixed). */
-            if (samples_to_output < (int)paula_buflen)
-            {
-                int pad = paula_buflen - samples_to_output;
-                memset(buf   + samples_to_output, buf[samples_to_output - 1],   pad);
-                memset(buf_r + samples_to_output, buf_r[samples_to_output - 1], pad);
+                CopyMem(fast_buf_left,  buf,   samples_to_output);
+                CopyMem(fast_buf_right, buf_r, samples_to_output);
             }
         }
-        else
-        {
-#ifdef USE_ASM_AUDIO
-            {
-                BYTE *dl = fast_buf_left ? fast_buf_left : buf;
-                ConvertMono8_asm(buffer, dl, samples_to_output);
-                if (fast_buf_left)
-                    CopyMem(fast_buf_left, buf, samples_to_output);
-            }
 #else
-            convert_16bit_stereo_to_8bit_mono(buffer, buf, samples_to_output);
+        convert_16bit_stereo_to_8bit_stereo(buffer, buf, buf_r, samples_to_output);
 #endif
-            /* Pad tail with last sample value to avoid DC step click */
-            if (samples_to_output < (int)paula_buflen)
-            {
-                int pad = paula_buflen - samples_to_output;
-                memset(buf + samples_to_output, buf[samples_to_output - 1], pad);
-            }
-        }
     }
     else
     {
-        memset(buf, 0, paula_buflen);
+#ifdef USE_ASM_AUDIO
+        {
+            BYTE *dl = fast_buf_left ? fast_buf_left : buf;
+            ConvertMono8_asm(buffer, dl, samples_to_output);
+            if (fast_buf_left)
+                CopyMem(fast_buf_left, buf, samples_to_output);
+        }
+#else
+        convert_16bit_stereo_to_8bit_mono(buffer, buf, samples_to_output);
+#endif
     }
 
-    /* Fixed-length buffers: Paula plays exactly paula_buflen samples each time.
-     * Variable ioa_Length causes timing jitter at buffer transitions (audible
-     * as clicks).  The tail is padded with the last sample value above to
-     * prevent a DC step at the boundary. */
+    /* Each request plays exactly samples_to_output samples. No tail
+     * padding: a buffer longer than the audio it holds plays more time than
+     * the emulator produces and the queue drifts (measured on target).
+     * An earlier version noted clicks with variable lengths; the cause was
+     * not recorded. Lengths here are always even and contiguous - if clicks
+     * at buffer boundaries reappear, look here first. */
     io_left->ioa_Request.io_Command = CMD_WRITE;
     io_left->ioa_Request.io_Flags   = ADIOF_PERVOL;
     io_left->ioa_Data    = (UBYTE *)buf;
-    io_left->ioa_Length  = paula_buflen;
+    io_left->ioa_Length  = samples_to_output;
     io_left->ioa_Period  = paula_period;
     io_left->ioa_Volume  = 64;
     io_left->ioa_Cycles  = 1;
@@ -647,7 +609,7 @@ void paula_audio_submit(signed short *buffer, int samples)
     io_right->ioa_Request.io_Command = CMD_WRITE;
     io_right->ioa_Request.io_Flags   = ADIOF_PERVOL;
     io_right->ioa_Data    = paula_stereo ? (UBYTE *)paula_buf_right[fill_buf] : (UBYTE *)buf;
-    io_right->ioa_Length  = paula_buflen;
+    io_right->ioa_Length  = samples_to_output;
     io_right->ioa_Period  = paula_period;
     io_right->ioa_Volume  = 64;
     io_right->ioa_Cycles  = 1;
@@ -661,6 +623,7 @@ void paula_audio_submit(signed short *buffer, int samples)
     Enable();
     req_pending_left[fill_buf]  = TRUE;
     req_pending_right[fill_buf] = TRUE;
+    paula_dbg_submitted++;
 
     /* Advance to next slot for the following call */
     paula_current = (paula_current + 1) % PAULA_NUM_BUFFERS;

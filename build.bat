@@ -37,17 +37,17 @@ set USE_ZIP_FLAG=USE_ZIP=1
 
 :parse_args
 if "%1"=="" goto build
-if "%1"=="68030" set CPU=68030 & shift & goto parse_args
-if "%1"=="68040" set CPU=68040 & shift & goto parse_args
-if "%1"=="68060" set CPU=68060 & shift & goto parse_args
-if "%1"=="68080" set CPU=68080 & shift & goto parse_args
-if "%1"=="pi3"   set TARGET=pi3 & shift & goto parse_args
-if "%1"=="clean" set TARGET=clean & shift & goto parse_args
-if "%1"=="debug" set TARGET=debug & shift & goto parse_args
-if "%1"=="info"  set TARGET=info & shift & goto parse_args
-if "%1"=="clib2"    set LIBC=clib2 & shift & goto parse_args
-if "%1"=="launcher" set TARGET=launcher & shift & goto parse_args
-if "%1"=="zip"   set USE_ZIP_FLAG=USE_ZIP=1 & shift & goto parse_args
+if "%1"=="68030" set "CPU=68030" & shift & goto parse_args
+if "%1"=="68040" set "CPU=68040" & shift & goto parse_args
+if "%1"=="68060" set "CPU=68060" & shift & goto parse_args
+if "%1"=="68080" set "CPU=68080" & shift & goto parse_args
+if "%1"=="pi3"   set "TARGET=pi3" & shift & goto parse_args
+if "%1"=="clean" set "TARGET=clean" & shift & goto parse_args
+if "%1"=="debug" set "TARGET=debug" & shift & goto parse_args
+if "%1"=="info"  set "TARGET=info" & shift & goto parse_args
+if "%1"=="clib2"    set "LIBC=clib2" & shift & goto parse_args
+if "%1"=="launcher" set "TARGET=launcher" & shift & goto parse_args
+if "%1"=="zip"   set "USE_ZIP_FLAG=USE_ZIP=1" & shift & goto parse_args
 if "%1"=="help"  goto help
 if "%1"=="-h"    goto help
 if "%1"=="/?"    goto help
@@ -90,10 +90,15 @@ pause
 exit /b 0
 
 :build
+REM The amiga-gcc make.exe (GNU Make 4.4.1 for MSYS) exits 0 even when a
+REM recipe fails, and %ERRORLEVEL% inside a ( ) block is expanded before the
+REM block runs. So every build deletes its output first and judges success by
+REM whether the output exists afterwards, never by the exit code.
 if "%TARGET%"=="launcher" (
     echo Building MUI game launcher...
+    if exist GenesisPlusGX-Launcher del GenesisPlusGX-Launcher
     make launcher CPU=%CPU% LIBC=%LIBC% SHELL=sh.exe
-    if %ERRORLEVEL% NEQ 0 goto build_failed
+    if not exist GenesisPlusGX-Launcher goto build_failed
     echo.
     echo ========================================
     echo LAUNCHER BUILD SUCCESSFUL!
@@ -118,8 +123,9 @@ if "%TARGET%"=="pi3" (
     echo Building Pi 3 PiStorm optimised binary...
     echo CPU: 68030 with all ASM optimisations
     echo.
+    if exist GenesisPlusGX del GenesisPlusGX
     make pi3 CPU=68030 LIBC=%LIBC% SHELL=sh.exe
-    if %ERRORLEVEL% NEQ 0 goto build_failed
+    if not exist GenesisPlusGX goto build_failed
     echo.
     echo ========================================
     echo Pi 3 BUILD SUCCESSFUL!
@@ -136,22 +142,9 @@ echo C Library: %LIBC%
 echo ASM optimizations: audio, video, blip
 echo.
 
+if exist GenesisPlusGX del GenesisPlusGX
 make %TARGET% CPU=%CPU% LIBC=%LIBC% USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 %USE_ZIP_FLAG% SHELL=sh.exe
-
-:build_failed
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo ========================================
-    echo BUILD FAILED!
-    echo ========================================
-    echo.
-    echo If you see missing header errors, check that:
-    echo   - amiga-gcc is properly installed
-    echo   - PATH includes the amiga-gcc bin directory
-    echo.
-    pause
-    exit /b 1
-)
+if not exist GenesisPlusGX goto build_failed
 
 echo.
 echo ========================================
@@ -159,9 +152,25 @@ echo BUILD SUCCESSFUL!
 echo ========================================
 echo Output: GenesisPlusGX
 echo.
-if exist GenesisPlusGX dir GenesisPlusGX
+dir GenesisPlusGX
+goto done
+
+:build_failed
+echo.
+echo ========================================
+echo BUILD FAILED!
+echo ========================================
+echo.
+echo The output file was not produced - see the errors above.
+echo If you see missing header errors, check that:
+echo   - amiga-gcc is properly installed
+echo   - PATH includes the amiga-gcc bin directory
+echo.
+pause
+exit /b 1
 
 :done
 echo.
 pause
 exit /b 0
+

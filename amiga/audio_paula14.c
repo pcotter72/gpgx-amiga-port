@@ -92,14 +92,6 @@ static UWORD paula_period = 128;
 
 /* Volume boost shift */
 static int volume_boost = 0;
-static int paula14_margin = 0;
-
-void paula14_set_margin(int margin)
-{
-    if (margin < 0)   margin = 0;
-    if (margin > 882) margin = 882;
-    paula14_margin = margin;
-}
 
 void paula14_set_volume_boost(int boost)
 {
@@ -168,14 +160,13 @@ int paula14_audio_init(int frequency, int hw_pal, int game_pal)
     paula_period = period;
     paula_freq   = paula_clock / period;
 
-    /* Buffer size: samples per frame + headroom.
-     * 4.5   = blip_buf rounding headroom.
-     * 200.0 = PiStorm/Emu68 timer latency margin (same rationale as audio_paula.c).
-     * With 60 samples (1.45ms), ~7-8% of frames produced audible gaps on PiStorm.
-     * 200 samples = 4.85ms at 41242Hz reduces gap rate to < 0.03%. */
+    /* Buffer CAPACITY, not playback length: each CMD_WRITE plays exactly
+     * the samples submitted (main.c passes one frame, always an even count).
+     * +3% +16 covers blip_buf rounding (a few samples over freq/fps) and
+     * main.c's rate control, which stretches a frame by up to ~1.2%. */
     fps = game_pal ? 50.0 : 60.0;
     spf = (double)paula_freq / fps;
-    paula_buflen = (ULONG)(spf + 4.5 + (double)paula14_margin);
+    paula_buflen = (ULONG)(spf * 1.03 + 16.0);
     paula_buflen = (paula_buflen + 1) & ~1;  /* word-align for DMA */
 
     /* Create message port */
@@ -331,7 +322,7 @@ int paula14_audio_available(void)
  ****************************************************************************/
 void paula14_audio_submit(signed short *buffer, int samples)
 {
-    int fill_buf, slot, num, pad, s;
+    int fill_buf, slot, num, s;
     BYTE *dlhi, *dllo, *drhi, *drlo;
     struct IOAudio *ilhi, *illo, *irhi, *irlo;
 
@@ -365,66 +356,51 @@ void paula14_audio_submit(signed short *buffer, int samples)
         return;
     }
 
-    /* Fill the chosen slot */
+    /* Fill the chosen slot with exactly the samples given. main.c always
+     * passes an even count (it carries an odd last sample into the next
+     * frame); the checks below only guard against a caller that does not. */
     num = samples;
-    if (num > (int)paula_buflen) num = (int)paula_buflen;
-    if (num < 2) num = 2;
-    num &= ~1;
+    if (num > (int)paula_buflen) num = (int)paula_buflen;   /* capacity */
+    num &= ~1;                       /* CMD_WRITE length must be even */
+    if (!buffer || num < 2)
+        return;                      /* slot stays free */
 
     dlhi = fast_lhi ? fast_lhi : buf_lhi[fill_buf];
     dllo = fast_llo ? fast_llo : buf_llo[fill_buf];
     drhi = fast_rhi ? fast_rhi : buf_rhi[fill_buf];
     drlo = fast_rlo ? fast_rlo : buf_rlo[fill_buf];
 
-    if (buffer && num > 0)
-    {
 #ifdef USE_ASM_AUDIO
-        Convert14Bit_asm(buffer, dlhi, dllo, drhi, drlo, num, volume_boost);
+    Convert14Bit_asm(buffer, dlhi, dllo, drhi, drlo, num, volume_boost);
 #else
+    {
+        int shift = volume_boost;
+        for (s = 0; s < num; s++)
         {
-            int shift = volume_boost;
-            for (s = 0; s < num; s++)
-            {
-                int sl = (int)buffer[s * 2];
-                int sr = (int)buffer[s * 2 + 1];
-                UWORD ul, ur;
-                sl <<= shift;  if (sl >  32767) sl =  32767;  if (sl < -32768) sl = -32768;
-                sr <<= shift;  if (sr >  32767) sr =  32767;  if (sr < -32768) sr = -32768;
-                ul = (UWORD)(WORD)sl;  ur = (UWORD)(WORD)sr;
-                dlhi[s] = (BYTE)((WORD)ul >> 8);
-                dllo[s] = (BYTE)((ul & 0xFF) >> 2);
-                drhi[s] = (BYTE)((WORD)ur >> 8);
-                drlo[s] = (BYTE)((ur & 0xFF) >> 2);
-            }
-        }
-#endif
-        if (fast_lhi)
-        {
-            CopyMem(fast_lhi, buf_lhi[fill_buf], num);
-            CopyMem(fast_llo, buf_llo[fill_buf], num);
-            CopyMem(fast_rhi, buf_rhi[fill_buf], num);
-            CopyMem(fast_rlo, buf_rlo[fill_buf], num);
-        }
-        /* Pad tail with last sample value to avoid DC step click at
-         * buffer boundary (all 4 channels, ioa_Length = paula_buflen fixed). */
-        if (num < (int)paula_buflen)
-        {
-            int pad = paula_buflen - num;
-            memset(buf_lhi[fill_buf] + num, buf_lhi[fill_buf][num - 1], pad);
-            memset(buf_llo[fill_buf] + num, buf_llo[fill_buf][num - 1], pad);
-            memset(buf_rhi[fill_buf] + num, buf_rhi[fill_buf][num - 1], pad);
-            memset(buf_rlo[fill_buf] + num, buf_rlo[fill_buf][num - 1], pad);
+            int sl = (int)buffer[s * 2];
+            int sr = (int)buffer[s * 2 + 1];
+            UWORD ul, ur;
+            sl <<= shift;  if (sl >  32767) sl =  32767;  if (sl < -32768) sl = -32768;
+            sr <<= shift;  if (sr >  32767) sr =  32767;  if (sr < -32768) sr = -32768;
+            ul = (UWORD)(WORD)sl;  ur = (UWORD)(WORD)sr;
+            dlhi[s] = (BYTE)((WORD)ul >> 8);
+            dllo[s] = (BYTE)((ul & 0xFF) >> 2);
+            drhi[s] = (BYTE)((WORD)ur >> 8);
+            drlo[s] = (BYTE)((ur & 0xFF) >> 2);
         }
     }
-    else
+#endif
+    if (fast_lhi)
     {
-        memset(buf_lhi[fill_buf], 0, paula_buflen);
-        memset(buf_llo[fill_buf], 0, paula_buflen);
-        memset(buf_rhi[fill_buf], 0, paula_buflen);
-        memset(buf_rlo[fill_buf], 0, paula_buflen);
+        CopyMem(fast_lhi, buf_lhi[fill_buf], num);
+        CopyMem(fast_llo, buf_llo[fill_buf], num);
+        CopyMem(fast_rhi, buf_rhi[fill_buf], num);
+        CopyMem(fast_rlo, buf_rlo[fill_buf], num);
     }
 
-    /* Set up IO requests */
+    /* Set up IO requests: each plays exactly num samples. No tail padding:
+     * a buffer longer than the audio it holds plays more time than the
+     * emulator produces, and the queue drifts (measured on target). */
     ilhi = io_lhi[fill_buf];
     illo = io_llo[fill_buf];
     irhi = io_rhi[fill_buf];
@@ -433,7 +409,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
     ilhi->ioa_Request.io_Command = CMD_WRITE;
     ilhi->ioa_Request.io_Flags   = ADIOF_PERVOL;
     ilhi->ioa_Data   = (UBYTE *)buf_lhi[fill_buf];
-    ilhi->ioa_Length = paula_buflen;
+    ilhi->ioa_Length = num;
     ilhi->ioa_Period = paula_period;
     ilhi->ioa_Volume = 64;
     ilhi->ioa_Cycles = 1;
@@ -441,7 +417,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
     illo->ioa_Request.io_Command = CMD_WRITE;
     illo->ioa_Request.io_Flags   = ADIOF_PERVOL;
     illo->ioa_Data   = (UBYTE *)buf_llo[fill_buf];
-    illo->ioa_Length = paula_buflen;
+    illo->ioa_Length = num;
     illo->ioa_Period = paula_period;
     illo->ioa_Volume = 1;
     illo->ioa_Cycles = 1;
@@ -449,7 +425,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
     irhi->ioa_Request.io_Command = CMD_WRITE;
     irhi->ioa_Request.io_Flags   = ADIOF_PERVOL;
     irhi->ioa_Data   = (UBYTE *)buf_rhi[fill_buf];
-    irhi->ioa_Length = paula_buflen;
+    irhi->ioa_Length = num;
     irhi->ioa_Period = paula_period;
     irhi->ioa_Volume = 64;
     irhi->ioa_Cycles = 1;
@@ -457,7 +433,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
     irlo->ioa_Request.io_Command = CMD_WRITE;
     irlo->ioa_Request.io_Flags   = ADIOF_PERVOL;
     irlo->ioa_Data   = (UBYTE *)buf_rlo[fill_buf];
-    irlo->ioa_Length = paula_buflen;
+    irlo->ioa_Length = num;
     irlo->ioa_Period = paula_period;
     irlo->ioa_Volume = 1;
     irlo->ioa_Cycles = 1;
