@@ -12,9 +12,12 @@
  *  - AUD1 = Right HI (volume 64)  \  combined on right DAC -> ~12-bit right
  *  - AUD2 = Right LO (volume  1)  /
  *
- *  Formula: HI[n] = sample >> 8 (signed), LO[n] = (sample & 0xFF) >> 2
- *  DAC output = HI * 64 + LO * 1 = sample / 4 (14-bit linear, exact)
- *  Effective resolution: ~10-12 bit (hardware DAC matching, interrupt skew)
+ *  v14 = sample / 4 (floor, after boost and clamping) = HI * 64 + LO,
+ *  with HI and LO taking the sign of v14 (sign-symmetric split): a quiet
+ *  signal near zero moves only the volume-1 channel. Done through two
+ *  64 KB lookup tables. All four channels share one allocation key and
+ *  are started together with CMD_STOP/CMD_START (see audio_paula14.c).
+ *  Effective resolution: ~10-12 bit (hardware DAC matching).
  *
  ****************************************************************************/
 
@@ -50,8 +53,10 @@ void paula14_set_volume_boost(int boost);
 /* Return number of buffers currently queued with Paula (0..4) */
 int paula14_audio_queued(void);
 
-/* Debug counters: frames submitted and dropped since last reset */
+/* Debug counters: frames submitted and dropped since last reset, and how
+ * often all four channels were (re)started in sync via CMD_STOP/START */
 extern int paula14_dbg_submitted;
 extern int paula14_dbg_dropped;
+extern int paula14_dbg_syncs;
 
 #endif /* _AUDIO_PAULA14_H_ */

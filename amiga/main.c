@@ -2962,6 +2962,21 @@ int main(int argc, char *argv[])
                        aud_depth[3], aud_depth[4]);
                 printf("Audio: rate control stretched %lu frames, shrank %lu\n",
                        aud_stretch, aud_shrink);
+                if (audio_use_14bit)
+                    printf("Audio: 14-bit channels started in sync %d time(s)\n",
+                           paula14_dbg_syncs);
+                /* Paula playing slower than its nominal rate shows up as the
+                 * queue piling up: shrinking on most frames, or dropping.
+                 * HRM 5-2-5-1: below period 124 (123 PAL) the audio DMA
+                 * cannot fetch in time on a 15 kHz display and "the
+                 * previous sample will be reused". */
+                if (!audio_use_ahi && aud_frames >= 600 &&
+                    (aud_shrink * 2 > aud_frames || aud_dropped * 20 > aud_frames))
+                {
+                    printf("Audio: Paula played slower than its nominal rate. A sample\n");
+                    printf("       rate above ~28 kHz needs a 31 kHz native display mode;\n");
+                    printf("       try paulafreq=27710.\n");
+                }
             }
             if (ft_frames)
             {

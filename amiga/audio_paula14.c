@@ -7,9 +7,26 @@
  *  - AUD1 (ch 1) = Right HI, vol 64  \  summed on right DAC
  *  - AUD2 (ch 2) = Right LO, vol  1  /
  *
- *  Uses quad-buffered CMD_WRITE via audio.device.  All four BeginIO
- *  calls are wrapped in Disable/Enable so all channels start on the
- *  same scheduler tick, preventing phase drift.
+ *  Left = channels 0 and 3. NOTE: the Hardware Reference Manual (5-2-1)
+ *  and RKRM Devices say the opposite (1/2 left, 0/3 right). Paula's AUDL
+ *  pin carries channels 0 and 3 (8364 pinout), Eagleplayer's 14-bit
+ *  output (Ampout_Paula14.s) uses 0/3 as left, and so does the tracker
+ *  LRRL convention - so this mapping is kept. Don't "fix" it from the
+ *  manuals without a listening test on real hardware.
+ *
+ *  All four channels are allocated with ONE allocation key, so the four
+ *  CMD_WRITEs of a buffer can be started in exact sync: whenever every
+ *  channel is idle (first buffer, or after the queue ran dry) the writes
+ *  are queued behind CMD_STOP and released with one CMD_START, which
+ *  "exactly synchronizes them" (RKRM Devices, CMD_START). While playing,
+ *  same-length buffers switch at the same sample on all four channels.
+ *
+ *  Samples go through two 64 KB tables (HI, LO) built for the current
+ *  volume boost: clamping is baked in, and the split is sign-symmetric -
+ *  a negative sample gets a negative LO - so a quiet signal near zero
+ *  moves only the volume-1 channel instead of flipping the HI channel
+ *  between 0 and -1 on every zero crossing (same as Eagleplayer's
+ *  PAULA14_NEG14RANGE).
  *
  ****************************************************************************/
 
@@ -26,56 +43,49 @@
 #include "audio_paula14.h"
 
 #ifdef USE_ASM_AUDIO
-extern void Convert14Bit_asm(signed short *src,
-                              signed char *dst_lhi, signed char *dst_llo,
-                              signed char *dst_rhi, signed char *dst_rlo,
-                              int samples, int boost);
+extern void Convert14Tab_asm(signed short *src,
+                             signed char *dst_lhi, signed char *dst_llo,
+                             signed char *dst_rhi, signed char *dst_rlo,
+                             int samples,
+                             const signed char *hi_mid, const signed char *lo_mid);
 #endif
 
 /* Paula clock rates */
 #define PAULA_CLOCK_PAL  3546895UL
 #define PAULA_CLOCK_NTSC 3579545UL
 
-/* Quad buffering: 4 frames headroom (~80ms at 50fps) */
+/* Quad buffering: 4 frames headroom */
 #define PAULA_NUM_BUFFERS 4
 
-/* Fixed channel assignment */
-#define CHAN_LHI 0    /* AUD0: left  HI, vol 64 */
-#define CHAN_RHI 1    /* AUD1: right HI, vol 64 */
-#define CHAN_RLO 2    /* AUD2: right LO, vol  1 */
-#define CHAN_LLO 3    /* AUD3: left  LO, vol  1 */
+/* Channel roles. Each slot sends one CMD_WRITE per role. */
+#define R_LHI 0
+#define R_LLO 1
+#define R_RHI 2
+#define R_RLO 3
+#define NUM_ROLES 4
+static const UBYTE role_chan[NUM_ROLES] = { 0, 3, 1, 2 };    /* AUDx */
+static const UWORD role_vol[NUM_ROLES]  = { 64, 1, 64, 1 };
 
-/* Channel allocation masks (one bit per mask array) */
-static UBYTE chan_mask_lhi[] = { 1 << CHAN_LHI };  /* 0x01 */
-static UBYTE chan_mask_rhi[] = { 1 << CHAN_RHI };  /* 0x02 */
-static UBYTE chan_mask_rlo[] = { 1 << CHAN_RLO };  /* 0x04 */
-static UBYTE chan_mask_llo[] = { 1 << CHAN_LLO };  /* 0x08 */
+/* One allocation of all four channels: a single combination, 0x0F */
+static UBYTE chan_all[] = { 0x0F };
 
-/* IO request arrays - one per buffer slot per channel */
 static struct MsgPort *paula14_port = NULL;
-static struct IOAudio *io_lhi[PAULA_NUM_BUFFERS];
-static struct IOAudio *io_llo[PAULA_NUM_BUFFERS];
-static struct IOAudio *io_rhi[PAULA_NUM_BUFFERS];
-static struct IOAudio *io_rlo[PAULA_NUM_BUFFERS];
+static struct IOAudio *io_ctl = NULL;      /* the OpenDevice() request, unit 0x0F */
+static BOOL ctl_open = FALSE;
 
-/* Chip RAM DMA buffers - one per slot per channel */
-static BYTE *buf_lhi[PAULA_NUM_BUFFERS];
-static BYTE *buf_llo[PAULA_NUM_BUFFERS];
-static BYTE *buf_rhi[PAULA_NUM_BUFFERS];
-static BYTE *buf_rlo[PAULA_NUM_BUFFERS];
+/* Per slot, per role: request and Chip RAM DMA buffer */
+static struct IOAudio *io_req[PAULA_NUM_BUFFERS][NUM_ROLES];
+static BYTE *buf[PAULA_NUM_BUFFERS][NUM_ROLES];
+static BOOL pending[PAULA_NUM_BUFFERS];    /* all four requests of the slot sent */
 
-/* Pending flags */
-static BOOL req_pending_lhi[PAULA_NUM_BUFFERS];
-static BOOL req_pending_llo[PAULA_NUM_BUFFERS];
-static BOOL req_pending_rhi[PAULA_NUM_BUFFERS];
-static BOOL req_pending_rlo[PAULA_NUM_BUFFERS];
-
-/* Fast RAM staging */
-static BYTE *fast_lhi = NULL;
-static BYTE *fast_llo = NULL;
-static BYTE *fast_rhi = NULL;
-static BYTE *fast_rlo = NULL;
+/* Fast RAM staging, one per role */
+static BYTE *fast[NUM_ROLES];
 static ULONG fast_buf_size = 0;
+
+/* HI/LO tables: 2 x 65536 bytes, indexed by the signed sample from the middle */
+#define TAB_BYTES 131072UL
+static BYTE *tab14 = NULL;
+static int  tab_boost = -1;                /* boost the tables were built for */
 
 /* State */
 static BOOL paula14_open = FALSE;
@@ -84,10 +94,11 @@ static int  paula14_current = 0;
 /* Debug counters */
 int paula14_dbg_submitted = 0;
 int paula14_dbg_dropped   = 0;
+int paula14_dbg_syncs     = 0;             /* synchronised (CMD_STOP/START) starts */
 
 /* Audio parameters */
 static ULONG paula_freq   = 0;
-static ULONG paula_buflen = 0;
+static ULONG paula_buflen = 0;             /* buffer CAPACITY in bytes/samples */
 static UWORD paula_period = 128;
 
 /* Volume boost shift */
@@ -101,26 +112,41 @@ void paula14_set_volume_boost(int boost)
 }
 
 /****************************************************************************
- * Open audio.device to claim one specific channel
+ * HI/LO tables for one boost value.
+ *
+ * v   = sample << boost, clamped to 16 bits
+ * v14 = floor(v / 4)                 (-8192..8191, as before)
+ * |v14| = 64 * |HI| + |LO|, HI and LO taking the sign of v14:
+ *   v14 >= 0:  HI = v14 / 64,  LO = v14 % 64          (0..127, 0..63)
+ *   v14 <  0:  HI = -(m / 64), LO = -(m % 64), m=-v14  (-128..0, -63..0)
+ * HI*64 + LO == v14 exactly in both cases.
  ****************************************************************************/
-static struct IOAudio *alloc_chan(struct MsgPort *port,
-                                  UBYTE *mask, int mlen)
+static void build_tables(int boost)
 {
-    struct IOAudio *io;
-    io = (struct IOAudio *)CreateIORequest(port, sizeof(struct IOAudio));
-    if (!io) return NULL;
-    io->ioa_Request.io_Message.mn_Node.ln_Pri = 127;
-    io->ioa_Request.io_Command = ADCMD_ALLOCATE;
-    io->ioa_Request.io_Flags   = ADIOF_NOWAIT;
-    io->ioa_AllocKey           = 0;
-    io->ioa_Data               = mask;
-    io->ioa_Length             = mlen;
-    if (OpenDevice("audio.device", 0, (struct IORequest *)io, 0))
+    BYTE *hi = tab14 + 32768;              /* hi[s] for s = -32768..32767 */
+    BYTE *lo = tab14 + 65536 + 32768;
+    LONG s, v, v14, m;
+
+    for (s = -32768; s <= 32767; s++)
     {
-        DeleteIORequest((struct IORequest *)io);
-        return NULL;
+        v = s * (1L << boost);     /* not s << boost: s may be negative */
+        if (v >  32767) v =  32767;
+        if (v < -32768) v = -32768;
+        /* floor division by 4 without relying on >> of a negative value */
+        v14 = (v >= 0) ? (v >> 2) : -(((-v) + 3) >> 2);
+        if (v14 >= 0)
+        {
+            hi[s] = (BYTE)(v14 >> 6);
+            lo[s] = (BYTE)(v14 & 63);
+        }
+        else
+        {
+            m = -v14;
+            hi[s] = (BYTE)(-(m >> 6));
+            lo[s] = (BYTE)(-(m & 63));
+        }
     }
-    return io;
+    tab_boost = boost;
 }
 
 /****************************************************************************
@@ -131,21 +157,25 @@ int paula14_audio_init(int frequency, int hw_pal, int game_pal)
     ULONG paula_clock;
     UWORD period;
     double fps, spf;
-    int i;
+    int i, r;
 
-    if (paula14_open)
+    if (paula14_open || ctl_open)
         paula14_audio_shutdown();
 
     for (i = 0; i < PAULA_NUM_BUFFERS; i++)
     {
-        io_lhi[i] = io_llo[i] = io_rhi[i] = io_rlo[i] = NULL;
-        buf_lhi[i] = buf_llo[i] = buf_rhi[i] = buf_rlo[i] = NULL;
-        req_pending_lhi[i] = req_pending_llo[i] = FALSE;
-        req_pending_rhi[i] = req_pending_rlo[i] = FALSE;
+        for (r = 0; r < NUM_ROLES; r++)
+        {
+            io_req[i][r] = NULL;
+            buf[i][r] = NULL;
+        }
+        pending[i] = FALSE;
     }
-    fast_lhi = fast_llo = fast_rhi = fast_rlo = NULL;
+    for (r = 0; r < NUM_ROLES; r++)
+        fast[r] = NULL;
     fast_buf_size = 0;
     paula14_current = 0;
+    paula14_dbg_syncs = 0;
 
     paula_clock = hw_pal ? PAULA_CLOCK_PAL : PAULA_CLOCK_NTSC;
     if (frequency <= 0)
@@ -169,59 +199,87 @@ int paula14_audio_init(int frequency, int hw_pal, int game_pal)
     paula_buflen = (ULONG)(spf * 1.03 + 16.0);
     paula_buflen = (paula_buflen + 1) & ~1;  /* word-align for DMA */
 
-    /* Create message port */
     paula14_port = CreateMsgPort();
     if (!paula14_port) goto fail;
 
-    /* Allocate all 4 channels via audio.device (slot 0 opens the device) */
-    io_lhi[0] = alloc_chan(paula14_port, chan_mask_lhi, 1);
-    if (!io_lhi[0]) { printf("Paula14: cannot alloc AUD%d\n", CHAN_LHI); goto fail; }
-    io_llo[0] = alloc_chan(paula14_port, chan_mask_llo, 1);
-    if (!io_llo[0]) { printf("Paula14: cannot alloc AUD%d\n", CHAN_LLO); goto fail; }
-    io_rhi[0] = alloc_chan(paula14_port, chan_mask_rhi, 1);
-    if (!io_rhi[0]) { printf("Paula14: cannot alloc AUD%d\n", CHAN_RHI); goto fail; }
-    io_rlo[0] = alloc_chan(paula14_port, chan_mask_rlo, 1);
-    if (!io_rlo[0]) { printf("Paula14: cannot alloc AUD%d\n", CHAN_RLO); goto fail; }
-
-    /* Duplicate IO requests for remaining buffer slots */
-    for (i = 1; i < PAULA_NUM_BUFFERS; i++)
+    /* Allocate all four channels at once (one key). OpenDevice() allocates
+     * as ADCMD_ALLOCATE would when ioa_Length is non-zero (RKRM Devices,
+     * Opening The Audio Device) and copies the combination into io_Unit. */
+    io_ctl = (struct IOAudio *)CreateIORequest(paula14_port, sizeof(struct IOAudio));
+    if (!io_ctl) goto fail;
+    io_ctl->ioa_Request.io_Message.mn_Node.ln_Pri = 127;
+    io_ctl->ioa_Request.io_Command = ADCMD_ALLOCATE;
+    io_ctl->ioa_Request.io_Flags   = ADIOF_NOWAIT;
+    io_ctl->ioa_AllocKey           = 0;
+    io_ctl->ioa_Data               = chan_all;
+    io_ctl->ioa_Length             = sizeof(chan_all);
+    if (OpenDevice("audio.device", 0, (struct IORequest *)io_ctl, 0))
     {
-        io_lhi[i] = (struct IOAudio *)CreateIORequest(paula14_port, sizeof(struct IOAudio));
-        io_llo[i] = (struct IOAudio *)CreateIORequest(paula14_port, sizeof(struct IOAudio));
-        io_rhi[i] = (struct IOAudio *)CreateIORequest(paula14_port, sizeof(struct IOAudio));
-        io_rlo[i] = (struct IOAudio *)CreateIORequest(paula14_port, sizeof(struct IOAudio));
-        if (!io_lhi[i] || !io_llo[i] || !io_rhi[i] || !io_rlo[i])
-        { printf("Paula14: cannot create IO request %d\n", i); goto fail; }
-        *io_lhi[i] = *io_lhi[0];
-        *io_llo[i] = *io_llo[0];
-        *io_rhi[i] = *io_rhi[0];
-        *io_rlo[i] = *io_rlo[0];
+        printf("Paula14: cannot allocate all four audio channels (in use?)\n");
+        DeleteIORequest((struct IORequest *)io_ctl);
+        io_ctl = NULL;
+        goto fail;
+    }
+    ctl_open = TRUE;
+    if ((ULONG)io_ctl->ioa_Request.io_Unit != 0x0F)
+    {
+        printf("Paula14: unexpected channel set $%lx\n",
+               (ULONG)io_ctl->ioa_Request.io_Unit);
+        goto fail;
     }
 
-    /* Allocate chip RAM DMA buffers */
+    /* One request per slot per channel: same key, single-channel unit */
     for (i = 0; i < PAULA_NUM_BUFFERS; i++)
     {
-        buf_lhi[i] = (BYTE *)AllocMem(paula_buflen, MEMF_CHIP | MEMF_CLEAR);
-        buf_llo[i] = (BYTE *)AllocMem(paula_buflen, MEMF_CHIP | MEMF_CLEAR);
-        buf_rhi[i] = (BYTE *)AllocMem(paula_buflen, MEMF_CHIP | MEMF_CLEAR);
-        buf_rlo[i] = (BYTE *)AllocMem(paula_buflen, MEMF_CHIP | MEMF_CLEAR);
-        if (!buf_lhi[i] || !buf_llo[i] || !buf_rhi[i] || !buf_rlo[i])
-        { printf("Paula14: out of chip RAM\n"); goto fail; }
+        for (r = 0; r < NUM_ROLES; r++)
+        {
+            io_req[i][r] = (struct IOAudio *)CreateIORequest(paula14_port,
+                                                             sizeof(struct IOAudio));
+            if (!io_req[i][r])
+            {
+                printf("Paula14: cannot create IO request %d\n", i);
+                goto fail;
+            }
+            *io_req[i][r] = *io_ctl;
+            io_req[i][r]->ioa_Request.io_Unit =
+                (struct Unit *)(ULONG)(1UL << role_chan[r]);
+        }
     }
+
+    /* Chip RAM DMA buffers */
+    for (i = 0; i < PAULA_NUM_BUFFERS; i++)
+    {
+        for (r = 0; r < NUM_ROLES; r++)
+        {
+            buf[i][r] = (BYTE *)AllocMem(paula_buflen, MEMF_CHIP | MEMF_CLEAR);
+            if (!buf[i][r])
+            {
+                printf("Paula14: out of chip RAM\n");
+                goto fail;
+            }
+        }
+    }
+
+    /* HI/LO tables in Fast RAM if there is any */
+    tab14 = (BYTE *)AllocMem(TAB_BYTES, MEMF_FAST);
+    if (!tab14)
+        tab14 = (BYTE *)AllocMem(TAB_BYTES, MEMF_ANY);
+    if (!tab14)
+    {
+        printf("Paula14: out of memory for the conversion tables\n");
+        goto fail;
+    }
+    tab_boost = -1;          /* built on the first submit, for the boost then */
 
     /* Fast RAM staging (non-fatal) */
     fast_buf_size = paula_buflen;
-    fast_lhi = (BYTE *)AllocMem(fast_buf_size, MEMF_FAST | MEMF_CLEAR);
-    fast_llo = (BYTE *)AllocMem(fast_buf_size, MEMF_FAST | MEMF_CLEAR);
-    fast_rhi = (BYTE *)AllocMem(fast_buf_size, MEMF_FAST | MEMF_CLEAR);
-    fast_rlo = (BYTE *)AllocMem(fast_buf_size, MEMF_FAST | MEMF_CLEAR);
-    if (!fast_lhi || !fast_llo || !fast_rhi || !fast_rlo)
+    for (r = 0; r < NUM_ROLES; r++)
+        fast[r] = (BYTE *)AllocMem(fast_buf_size, MEMF_FAST | MEMF_CLEAR);
+    if (!fast[0] || !fast[1] || !fast[2] || !fast[3])
     {
         printf("Paula14: fast staging alloc failed (non-fatal)\n");
-        if (fast_lhi) { FreeMem(fast_lhi, fast_buf_size); fast_lhi = NULL; }
-        if (fast_llo) { FreeMem(fast_llo, fast_buf_size); fast_llo = NULL; }
-        if (fast_rhi) { FreeMem(fast_rhi, fast_buf_size); fast_rhi = NULL; }
-        if (fast_rlo) { FreeMem(fast_rlo, fast_buf_size); fast_rlo = NULL; }
+        for (r = 0; r < NUM_ROLES; r++)
+            if (fast[r]) { FreeMem(fast[r], fast_buf_size); fast[r] = NULL; }
         fast_buf_size = 0;
     }
 
@@ -240,63 +298,87 @@ fail:
  ****************************************************************************/
 void paula14_audio_shutdown(void)
 {
-    int i;
+    int i, r;
 
     if (paula14_open)
     {
         /* Abort and wait for all pending requests */
         for (i = 0; i < PAULA_NUM_BUFFERS; i++)
         {
-            if (req_pending_lhi[i] && io_lhi[i])
-            { AbortIO((struct IORequest *)io_lhi[i]); WaitIO((struct IORequest *)io_lhi[i]); req_pending_lhi[i] = FALSE; }
-            if (req_pending_llo[i] && io_llo[i])
-            { AbortIO((struct IORequest *)io_llo[i]); WaitIO((struct IORequest *)io_llo[i]); req_pending_llo[i] = FALSE; }
-            if (req_pending_rhi[i] && io_rhi[i])
-            { AbortIO((struct IORequest *)io_rhi[i]); WaitIO((struct IORequest *)io_rhi[i]); req_pending_rhi[i] = FALSE; }
-            if (req_pending_rlo[i] && io_rlo[i])
-            { AbortIO((struct IORequest *)io_rlo[i]); WaitIO((struct IORequest *)io_rlo[i]); req_pending_rlo[i] = FALSE; }
+            if (!pending[i])
+                continue;
+            for (r = 0; r < NUM_ROLES; r++)
+            {
+                if (io_req[i][r])
+                {
+                    AbortIO((struct IORequest *)io_req[i][r]);
+                    WaitIO((struct IORequest *)io_req[i][r]);
+                }
+            }
+            pending[i] = FALSE;
         }
-
         paula14_open = FALSE;
     }
 
-    /* Close devices (only slot 0 opened the device). alloc_chan() deletes
-     * the request when OpenDevice() fails, so a non-NULL slot-0 request is
-     * always an open channel. Done outside the paula14_open block (which
-     * is only set at the very end of init) so a partial init failure -
-     * e.g. AUD0 opened, AUD1 busy, or chip RAM short - releases the
-     * channels it took instead of leaving them allocated until reboot. */
-    if (io_lhi[0]) CloseDevice((struct IORequest *)io_lhi[0]);
-    if (io_llo[0]) CloseDevice((struct IORequest *)io_llo[0]);
-    if (io_rhi[0]) CloseDevice((struct IORequest *)io_rhi[0]);
-    if (io_rlo[0]) CloseDevice((struct IORequest *)io_rlo[0]);
-
-    /* Free IO requests */
-    for (i = 0; i < PAULA_NUM_BUFFERS; i++)
+    /* Release the channels. Outside the block above (paula14_open is set
+     * only at the very end of init) so a partial init failure still frees
+     * what it allocated. */
+    if (ctl_open)
     {
-        if (io_lhi[i]) { DeleteIORequest((struct IORequest *)io_lhi[i]); io_lhi[i] = NULL; }
-        if (io_llo[i]) { DeleteIORequest((struct IORequest *)io_llo[i]); io_llo[i] = NULL; }
-        if (io_rhi[i]) { DeleteIORequest((struct IORequest *)io_rhi[i]); io_rhi[i] = NULL; }
-        if (io_rlo[i]) { DeleteIORequest((struct IORequest *)io_rlo[i]); io_rlo[i] = NULL; }
+        CloseDevice((struct IORequest *)io_ctl);
+        ctl_open = FALSE;
+    }
+    if (io_ctl)
+    {
+        DeleteIORequest((struct IORequest *)io_ctl);
+        io_ctl = NULL;
     }
 
-    /* Free chip RAM buffers */
     for (i = 0; i < PAULA_NUM_BUFFERS; i++)
     {
-        if (buf_lhi[i]) { FreeMem(buf_lhi[i], paula_buflen); buf_lhi[i] = NULL; }
-        if (buf_llo[i]) { FreeMem(buf_llo[i], paula_buflen); buf_llo[i] = NULL; }
-        if (buf_rhi[i]) { FreeMem(buf_rhi[i], paula_buflen); buf_rhi[i] = NULL; }
-        if (buf_rlo[i]) { FreeMem(buf_rlo[i], paula_buflen); buf_rlo[i] = NULL; }
+        for (r = 0; r < NUM_ROLES; r++)
+        {
+            if (io_req[i][r])
+            {
+                DeleteIORequest((struct IORequest *)io_req[i][r]);
+                io_req[i][r] = NULL;
+            }
+            if (buf[i][r])
+            {
+                FreeMem(buf[i][r], paula_buflen);
+                buf[i][r] = NULL;
+            }
+        }
     }
 
-    /* Free fast RAM staging */
-    if (fast_lhi) { FreeMem(fast_lhi, fast_buf_size); fast_lhi = NULL; }
-    if (fast_llo) { FreeMem(fast_llo, fast_buf_size); fast_llo = NULL; }
-    if (fast_rhi) { FreeMem(fast_rhi, fast_buf_size); fast_rhi = NULL; }
-    if (fast_rlo) { FreeMem(fast_rlo, fast_buf_size); fast_rlo = NULL; }
+    for (r = 0; r < NUM_ROLES; r++)
+        if (fast[r]) { FreeMem(fast[r], fast_buf_size); fast[r] = NULL; }
     fast_buf_size = 0;
 
+    if (tab14) { FreeMem(tab14, TAB_BYTES); tab14 = NULL; }
+    tab_boost = -1;
+
     if (paula14_port) { DeleteMsgPort(paula14_port); paula14_port = NULL; }
+}
+
+/* Have all four requests of a sent slot finished? (CheckIO never blocks) */
+static int slot_done(int slot)
+{
+    int r;
+    for (r = 0; r < NUM_ROLES; r++)
+        if (!CheckIO((struct IORequest *)io_req[slot][r]))
+            return 0;
+    return 1;
+}
+
+/* No request still playing or queued on any channel: all four are idle. */
+static int channels_idle(void)
+{
+    int i;
+    for (i = 0; i < PAULA_NUM_BUFFERS; i++)
+        if (pending[i] && !slot_done(i))
+            return 0;
+    return 1;
 }
 
 /****************************************************************************
@@ -304,155 +386,131 @@ void paula14_audio_shutdown(void)
  ****************************************************************************/
 int paula14_audio_available(void)
 {
-    int i;
+    int i, slot;
     if (!paula14_open) return 0;
     for (i = 0; i < PAULA_NUM_BUFFERS; i++)
     {
-        int slot = (paula14_current + i) % PAULA_NUM_BUFFERS;
-        if (!req_pending_lhi[slot])
-            return 1;
-        if (CheckIO((struct IORequest *)io_lhi[slot]))
+        slot = (paula14_current + i) % PAULA_NUM_BUFFERS;
+        if (!pending[slot] || slot_done(slot))
             return 1;
     }
     return 0;
 }
 
 /****************************************************************************
- * Submit audio buffer - fully non-blocking
+ * Submit audio buffer - non-blocking
  ****************************************************************************/
 void paula14_audio_submit(signed short *buffer, int samples)
 {
-    int fill_buf, slot, num, s;
-    BYTE *dlhi, *dllo, *drhi, *drlo;
-    struct IOAudio *ilhi, *illo, *irhi, *irlo;
+    int fill_buf, slot, num, s, r, sync;
+    BYTE *d[NUM_ROLES];
+    struct IOAudio *io;
 
     if (!paula14_open)
         return;
 
-    /* Find a free slot without blocking */
+    /* Find a free slot. A sent slot is reused only when all four of its
+     * requests have finished, so WaitIO() below never waits. */
     fill_buf = -1;
     for (s = 0; s < PAULA_NUM_BUFFERS; s++)
     {
         slot = (paula14_current + s) % PAULA_NUM_BUFFERS;
-        if (!req_pending_lhi[slot])
-        { fill_buf = slot; break; }
-        if (CheckIO((struct IORequest *)io_lhi[slot]))
+        if (!pending[slot])
         {
-            WaitIO((struct IORequest *)io_lhi[slot]); req_pending_lhi[slot] = FALSE;
-            WaitIO((struct IORequest *)io_llo[slot]); req_pending_llo[slot] = FALSE;
-            WaitIO((struct IORequest *)io_rhi[slot]); req_pending_rhi[slot] = FALSE;
-            WaitIO((struct IORequest *)io_rlo[slot]); req_pending_rlo[slot] = FALSE;
-            fill_buf = slot; break;
+            fill_buf = slot;
+            break;
+        }
+        if (slot_done(slot))
+        {
+            for (r = 0; r < NUM_ROLES; r++)
+                WaitIO((struct IORequest *)io_req[slot][r]);
+            pending[slot] = FALSE;
+            fill_buf = slot;
+            break;
         }
     }
-
     if (fill_buf < 0)
     {
-        /* All slots still playing - drop this audio frame silently.
-         * Paula DMA continues uninterrupted.  WaitIO would stall 0.5-2ms
-         * on PiStorm (interrupt round-trip), cascading into underruns. */
+        /* All slots still playing - drop this audio frame. main.c checks
+         * paula14_audio_available() first, so this is a rare race. */
         paula14_dbg_dropped++;
-        paula14_current = (paula14_current + 1) % PAULA_NUM_BUFFERS;
         return;
     }
 
-    /* Fill the chosen slot with exactly the samples given. main.c always
-     * passes an even count (it carries an odd last sample into the next
-     * frame); the checks below only guard against a caller that does not. */
+    /* Exactly the samples given. main.c always passes an even count (it
+     * carries an odd last sample into the next frame); the checks below
+     * only guard against a caller that does not. */
     num = samples;
     if (num > (int)paula_buflen) num = (int)paula_buflen;   /* capacity */
     num &= ~1;                       /* CMD_WRITE length must be even */
     if (!buffer || num < 2)
         return;                      /* slot stays free */
 
-    dlhi = fast_lhi ? fast_lhi : buf_lhi[fill_buf];
-    dllo = fast_llo ? fast_llo : buf_llo[fill_buf];
-    drhi = fast_rhi ? fast_rhi : buf_rhi[fill_buf];
-    drlo = fast_rlo ? fast_rlo : buf_rlo[fill_buf];
+    if (tab_boost != volume_boost)
+        build_tables(volume_boost);
+
+    for (r = 0; r < NUM_ROLES; r++)
+        d[r] = fast[r] ? fast[r] : buf[fill_buf][r];
 
 #ifdef USE_ASM_AUDIO
-    Convert14Bit_asm(buffer, dlhi, dllo, drhi, drlo, num, volume_boost);
+    Convert14Tab_asm(buffer, d[R_LHI], d[R_LLO], d[R_RHI], d[R_RLO], num,
+                     tab14 + 32768, tab14 + 65536 + 32768);
 #else
     {
-        int shift = volume_boost;
+        const BYTE *hi = tab14 + 32768;
+        const BYTE *lo = tab14 + 65536 + 32768;
         for (s = 0; s < num; s++)
         {
-            int sl = (int)buffer[s * 2];
-            int sr = (int)buffer[s * 2 + 1];
-            UWORD ul, ur;
-            sl <<= shift;  if (sl >  32767) sl =  32767;  if (sl < -32768) sl = -32768;
-            sr <<= shift;  if (sr >  32767) sr =  32767;  if (sr < -32768) sr = -32768;
-            ul = (UWORD)(WORD)sl;  ur = (UWORD)(WORD)sr;
-            dlhi[s] = (BYTE)((WORD)ul >> 8);
-            dllo[s] = (BYTE)((ul & 0xFF) >> 2);
-            drhi[s] = (BYTE)((WORD)ur >> 8);
-            drlo[s] = (BYTE)((ur & 0xFF) >> 2);
+            int sl = buffer[s * 2];
+            int sr = buffer[s * 2 + 1];
+            d[R_LHI][s] = hi[sl];
+            d[R_LLO][s] = lo[sl];
+            d[R_RHI][s] = hi[sr];
+            d[R_RLO][s] = lo[sr];
         }
     }
 #endif
-    if (fast_lhi)
+    if (fast[0])
+        for (r = 0; r < NUM_ROLES; r++)
+            CopyMem(fast[r], buf[fill_buf][r], num);
+
+    /* Each request plays exactly num samples (no tail padding) */
+    for (r = 0; r < NUM_ROLES; r++)
     {
-        CopyMem(fast_lhi, buf_lhi[fill_buf], num);
-        CopyMem(fast_llo, buf_llo[fill_buf], num);
-        CopyMem(fast_rhi, buf_rhi[fill_buf], num);
-        CopyMem(fast_rlo, buf_rlo[fill_buf], num);
+        io = io_req[fill_buf][r];
+        io->ioa_Request.io_Command = CMD_WRITE;
+        io->ioa_Request.io_Flags   = ADIOF_PERVOL;
+        io->ioa_Data   = (UBYTE *)buf[fill_buf][r];
+        io->ioa_Length = num;
+        io->ioa_Period = paula_period;
+        io->ioa_Volume = role_vol[r];
+        io->ioa_Cycles = 1;
     }
 
-    /* Set up IO requests: each plays exactly num samples. No tail padding:
-     * a buffer longer than the audio it holds plays more time than the
-     * emulator produces, and the queue drifts (measured on target). */
-    ilhi = io_lhi[fill_buf];
-    illo = io_llo[fill_buf];
-    irhi = io_rhi[fill_buf];
-    irlo = io_rlo[fill_buf];
+    /* All four channels idle: start them together. CMD_STOP makes the
+     * writes queue instead of playing, CMD_START releases all four at once.
+     * Otherwise every channel is still playing the previous buffer and the
+     * new ones follow it at the same sample on each channel. */
+    sync = channels_idle();
+    if (sync)
+    {
+        io_ctl->ioa_Request.io_Command = CMD_STOP;
+        io_ctl->ioa_Request.io_Flags   = 0;
+        DoIO((struct IORequest *)io_ctl);
+    }
+    for (r = 0; r < NUM_ROLES; r++)
+        BeginIO((struct IORequest *)io_req[fill_buf][r]);
+    if (sync)
+    {
+        io_ctl->ioa_Request.io_Command = CMD_START;
+        io_ctl->ioa_Request.io_Flags   = 0;
+        DoIO((struct IORequest *)io_ctl);
+        paula14_dbg_syncs++;
+    }
 
-    ilhi->ioa_Request.io_Command = CMD_WRITE;
-    ilhi->ioa_Request.io_Flags   = ADIOF_PERVOL;
-    ilhi->ioa_Data   = (UBYTE *)buf_lhi[fill_buf];
-    ilhi->ioa_Length = num;
-    ilhi->ioa_Period = paula_period;
-    ilhi->ioa_Volume = 64;
-    ilhi->ioa_Cycles = 1;
-
-    illo->ioa_Request.io_Command = CMD_WRITE;
-    illo->ioa_Request.io_Flags   = ADIOF_PERVOL;
-    illo->ioa_Data   = (UBYTE *)buf_llo[fill_buf];
-    illo->ioa_Length = num;
-    illo->ioa_Period = paula_period;
-    illo->ioa_Volume = 1;
-    illo->ioa_Cycles = 1;
-
-    irhi->ioa_Request.io_Command = CMD_WRITE;
-    irhi->ioa_Request.io_Flags   = ADIOF_PERVOL;
-    irhi->ioa_Data   = (UBYTE *)buf_rhi[fill_buf];
-    irhi->ioa_Length = num;
-    irhi->ioa_Period = paula_period;
-    irhi->ioa_Volume = 64;
-    irhi->ioa_Cycles = 1;
-
-    irlo->ioa_Request.io_Command = CMD_WRITE;
-    irlo->ioa_Request.io_Flags   = ADIOF_PERVOL;
-    irlo->ioa_Data   = (UBYTE *)buf_rlo[fill_buf];
-    irlo->ioa_Length = num;
-    irlo->ioa_Period = paula_period;
-    irlo->ioa_Volume = 1;
-    irlo->ioa_Cycles = 1;
-
-    /* All 4 channels start simultaneously - no phase drift */
-    Disable();
-    BeginIO((struct IORequest *)ilhi);
-    BeginIO((struct IORequest *)illo);
-    BeginIO((struct IORequest *)irhi);
-    BeginIO((struct IORequest *)irlo);
-    Enable();
-
-    req_pending_lhi[fill_buf] = TRUE;
-    req_pending_llo[fill_buf] = TRUE;
-    req_pending_rhi[fill_buf] = TRUE;
-    req_pending_rlo[fill_buf] = TRUE;
-
+    pending[fill_buf] = TRUE;
     paula14_dbg_submitted++;
-    paula14_current = (paula14_current + 1) % PAULA_NUM_BUFFERS;
+    paula14_current = (fill_buf + 1) % PAULA_NUM_BUFFERS;
 }
 
 /****************************************************************************
@@ -465,7 +523,7 @@ int paula14_audio_queued(void)
     int i, count = 0;
     if (!paula14_open) return 0;
     for (i = 0; i < PAULA_NUM_BUFFERS; i++)
-        if (req_pending_lhi[i] && !CheckIO((struct IORequest *)io_lhi[i]))
+        if (pending[i] && !slot_done(i))
             count++;
     return count;
 }

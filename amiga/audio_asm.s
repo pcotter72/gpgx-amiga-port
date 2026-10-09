@@ -4,7 +4,7 @@
  * Three routines:
  * 1. ConvertMono8_asm   - 16-bit stereo to 8-bit mono (for 8-bit Paula)
  * 2. ConvertStereo8_asm - 16-bit stereo to separate 8-bit L/R
- * 3. Convert14Bit_asm   - 16-bit stereo to 14-bit HI/LO split (no table)
+ * 3. Convert14Tab_asm   - 16-bit stereo to 14-bit HI/LO split via byte tables
  *
  * GNU Assembler (GAS) syntax for bebbo's amiga-gcc
  */
@@ -341,100 +341,98 @@ _ConvertStereo8_asm:
 
 
 /***************************************************************************
- * Convert14Bit_asm - Convert 16-bit stereo to 14-bit (4 separate buffers)
+ * Convert14Tab_asm - 16-bit stereo to 14-bit HI/LO via two byte tables
  *
- * void Convert14Bit_asm(signed short *src,
- *                        signed char *dst_lhi, signed char *dst_llo,
- *                        signed char *dst_rhi, signed char *dst_rlo,
- *                        int samples, int boost)
+ * void Convert14Tab_asm(signed short *src,
+ *                       signed char *dst_lhi, signed char *dst_llo,
+ *                       signed char *dst_rhi, signed char *dst_rlo,
+ *                       int samples,
+ *                       const signed char *hi_mid, const signed char *lo_mid)
  *
- * No lookup tables - direct arithmetic conversion.
- * For each stereo pair (L, R):
- *   1. Sign-extend 16->32 bits
- *   2. Logical left shift by boost (0..4)
- *   3. Clamp to -32768..32767
- *   4. HI = bits 15..8 (stored as signed byte, played at volume 64)
- *   5. LO = bits 7..2  (0..63, played at volume 1)
+ * hi_mid / lo_mid point at the entry for sample 0 of two 65536-byte tables
+ * (index -32768..32767), built in audio_paula14.c with the volume boost,
+ * clamping and the sign-symmetric HI/LO split already applied. So per
+ * stereo pair: two word loads and four memory-to-memory byte moves.
  *
- * No EA-index addressing -> no ALU->EA pipeline stalls.
+ * (d8,An,Xn.W) sign-extends the word index (M68000PRM 2.2.7) and is a
+ * valid MOVE source on every 680x0, so a signed sample indexes the table
+ * directly. Each sample register is loaded at least two instructions
+ * before it is used as an index (load -> EA spacing).
+ * 4x unrolled like the other converters.
  *
- * Register save: d2-d4/a2-a4 = 6 regs = 24 bytes
- * Stack layout (after 24-byte save + 4-byte return = 28 bytes offset):
- * sp@(28) = src
- * sp@(32) = dst_lhi
- * sp@(36) = dst_llo
- * sp@(40) = dst_rhi
- * sp@(44) = dst_rlo
- * sp@(48) = samples
- * sp@(52) = boost
+ * Register save: d2-d3/a2-a6 = 7 regs = 28 bytes
+ * Stack (after the 28-byte save + 4-byte return address):
+ * sp@(32) src       sp@(36) dst_lhi   sp@(40) dst_llo   sp@(44) dst_rhi
+ * sp@(48) dst_rlo   sp@(52) samples   sp@(56) hi_mid    sp@(60) lo_mid
  ***************************************************************************/
 
-	.globl	_Convert14Bit_asm
+	.globl	_Convert14Tab_asm
 
-_Convert14Bit_asm:
-	moveml	%d2-%d4/%a2-%a4,%sp@-	/* save 6 regs = 24 bytes */
+_Convert14Tab_asm:
+	moveml	%d2-%d3/%a2-%a6,%sp@-	/* save 7 regs = 28 bytes */
 
-	movel	%sp@(28),%a0		/* src */
-	movel	%sp@(32),%a1		/* dst_lhi */
-	movel	%sp@(36),%a2		/* dst_llo */
-	movel	%sp@(40),%a3		/* dst_rhi */
-	movel	%sp@(44),%a4		/* dst_rlo */
-	movel	%sp@(48),%d0		/* samples */
-	movel	%sp@(52),%d4		/* boost shift count */
+	movel	%sp@(32),%a0		/* src */
+	movel	%sp@(36),%a1		/* dst_lhi */
+	movel	%sp@(40),%a2		/* dst_llo */
+	movel	%sp@(44),%a3		/* dst_rhi */
+	movel	%sp@(48),%a4		/* dst_rlo */
+	movel	%sp@(52),%d0		/* samples */
+	movel	%sp@(56),%a5		/* hi_mid */
+	movel	%sp@(60),%a6		/* lo_mid */
 
 	tstl	%d0
-	ble	.Ldone14d
+	ble	.Ldone14t
 
-.Lloop14d:
-	/* Read L and R, sign-extend to 32 bits */
+	movel	%d0,%d3
+	lsrl	#2,%d3			/* groups of 4 pairs */
+	beq	.Lrem14t
+
+.Lloop14t:
+	movew	%a0@+,%d1		/* L */
+	movew	%a0@+,%d2		/* R */
+	moveb	%a5@(0,%d1:w),%a1@+	/* LHI = hi[L] */
+	moveb	%a6@(0,%d1:w),%a2@+	/* LLO = lo[L] */
+	moveb	%a5@(0,%d2:w),%a3@+	/* RHI = hi[R] */
+	moveb	%a6@(0,%d2:w),%a4@+	/* RLO = lo[R] */
+
 	movew	%a0@+,%d1
-	extl	%d1
 	movew	%a0@+,%d2
-	extl	%d2
+	moveb	%a5@(0,%d1:w),%a1@+
+	moveb	%a6@(0,%d1:w),%a2@+
+	moveb	%a5@(0,%d2:w),%a3@+
+	moveb	%a6@(0,%d2:w),%a4@+
 
-	/* Apply volume boost */
-	lsll	%d4,%d1
-	lsll	%d4,%d2
+	movew	%a0@+,%d1
+	movew	%a0@+,%d2
+	moveb	%a5@(0,%d1:w),%a1@+
+	moveb	%a6@(0,%d1:w),%a2@+
+	moveb	%a5@(0,%d2:w),%a3@+
+	moveb	%a6@(0,%d2:w),%a4@+
 
-	/* Clamp L to -32768..32767 */
-	cmpl	#32767,%d1
-	ble	.Lnoh14d_l
-	movel	#32767,%d1
-.Lnoh14d_l:
-	cmpl	#-32768,%d1
-	bge	.Lnol14d_l
-	movel	#-32768,%d1
-.Lnol14d_l:
+	movew	%a0@+,%d1
+	movew	%a0@+,%d2
+	moveb	%a5@(0,%d1:w),%a1@+
+	moveb	%a6@(0,%d1:w),%a2@+
+	moveb	%a5@(0,%d2:w),%a3@+
+	moveb	%a6@(0,%d2:w),%a4@+
 
-	/* Clamp R to -32768..32767 */
-	cmpl	#32767,%d2
-	ble	.Lnoh14d_r
-	movel	#32767,%d2
-.Lnoh14d_r:
-	cmpl	#-32768,%d2
-	bge	.Lnol14d_r
-	movel	#-32768,%d2
-.Lnol14d_r:
+	subql	#1,%d3
+	bne	.Lloop14t
 
-	/* Store L: HI = bits 15..8, LO = bits 7..2 */
-	movel	%d1,%d3
-	lsrw	#8,%d3			/* unsigned >>8 -> high byte of word in low byte */
-	moveb	%d3,%a1@+		/* dst_lhi */
-	moveb	%d1,%d3			/* low byte */
-	lsrb	#2,%d3			/* >> 2 -> range 0..63 */
-	moveb	%d3,%a2@+		/* dst_llo */
+.Lrem14t:
+	andl	#3,%d0			/* 0-3 pairs left */
+	beq	.Ldone14t
 
-	/* Store R: HI and LO */
-	movel	%d2,%d3
-	lsrw	#8,%d3
-	moveb	%d3,%a3@+		/* dst_rhi */
-	moveb	%d2,%d3
-	lsrb	#2,%d3
-	moveb	%d3,%a4@+		/* dst_rlo */
-
+.Lone14t:
+	movew	%a0@+,%d1
+	movew	%a0@+,%d2
+	moveb	%a5@(0,%d1:w),%a1@+
+	moveb	%a6@(0,%d1:w),%a2@+
+	moveb	%a5@(0,%d2:w),%a3@+
+	moveb	%a6@(0,%d2:w),%a4@+
 	subql	#1,%d0
-	bne	.Lloop14d
+	bne	.Lone14t
 
-.Ldone14d:
-	moveml	%sp@+,%d2-%d4/%a2-%a4
+.Ldone14t:
+	moveml	%sp@+,%d2-%d3/%a2-%a6
 	rts
