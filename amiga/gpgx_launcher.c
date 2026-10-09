@@ -413,7 +413,7 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     snprintf(line,sizeof(line),"vsync=%d\n",c->vsync);                   WR(line);
     WR("; frameskip: 0=off/auto 1=skip1/2 2=skip2/3 3=skip3/4\n");
     snprintf(line,sizeof(line),"frameskip=%d\n",c->frameskip);           WR(line);
-    WR("; autoskip: 1=skip render when over frame budget\n");
+    WR("; autoskip: 1=skip drawing when over half a frame behind schedule\n");
     snprintf(line,sizeof(line),"autoskip=%d\n",c->autoskip);             WR(line);
     WR("; fps: 1=show FPS counter\n");
     snprintf(line,sizeof(line),"fps=%d\n",c->fps);                       WR(line);

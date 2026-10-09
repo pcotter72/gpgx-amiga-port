@@ -1923,7 +1923,7 @@ static void config_save_default(void)
             "; frameskip: 0=off/auto, 1=skip 1 of 2, 2=skip 2 of 3, 3=skip 3 of 4\n"
             ";   Use autoskip=1 instead for dynamic skip (better quality)\n"
             "autoskip=1\n"
-            "; autoskip: 1=dynamic frame skip (render when on-time, skip when behind)\n"
+            "; autoskip: 1=dynamic frame skip (skip drawing when over half a frame behind)\n"
             ";   Overrides fixed frameskip when frameskip=0. Best for Pi 3/slow hardware.\n"
             "fps=1\n"
             "; fmvol/psgvol: FM and PSG preamp (10-100/200).\n"
@@ -2602,6 +2602,7 @@ int main(int argc, char *argv[])
         struct EClockVal ev_prev_start;
         int ft_have_prev = 0;
         ULONG ft_period_max = 0, ft_late = 0;
+        ULONG ft_drawn = 0;                 /* frames actually rendered */
 
         memset(aud_depth, 0, sizeof(aud_depth));
         if (eclock_freq)
@@ -2814,6 +2815,8 @@ int main(int argc, char *argv[])
             {
                 int vp_x, vp_y, vp_w, vp_h;
 
+                ft_drawn++;
+
                 /* Clear screen when viewport dimensions change to avoid pixel
                  * bleeding: old pixels outside the new (smaller) viewport stay
                  * visible as border garbage if not erased. bit 0 = size changed. */
@@ -2897,7 +2900,15 @@ int main(int argc, char *argv[])
                     now_t = eclock_ticks(&ev_now);
                     if (now_t >= next_deadline)
                     {
-                        if (use_autoskip)
+                        /* Autoskip only once the schedule is more than half
+                         * a frame behind. Skipping on ANY lateness skipped
+                         * every other frame when frames overran slightly
+                         * (GPU output overruns by ~0.5 ms): 59% of frames
+                         * drawn, measured on target, vs ~94% modelled with
+                         * this threshold. Smaller lags are won back by the
+                         * schedule on the following frames. */
+                        if (use_autoskip &&
+                            now_t - next_deadline > 0.5 * frame_period_ticks)
                             skip_next_render = 1;
                         /* A long stall (disk access, requester, state save)
                          * is skipped rather than caught up at full speed. */
@@ -2968,6 +2979,11 @@ int main(int argc, char *argv[])
                        ft_emu_max, ft_vid_max, ft_over, over_pct10 / 10, over_pct10 % 10);
                 printf("Frames: start-to-start max %lu us, %lu frames >1 ms late, schedule drift %ld ms, %lu resyncs\n",
                        ft_period_max, ft_late, drift_ms, sched_resyncs);
+                {
+                    ULONG dr10 = (ULONG)((double)ft_drawn * 1000.0 / (double)ft_frames + 0.5);
+                    printf("Frames: %lu of %lu drawn (%lu.%lu%%)\n",
+                           ft_drawn, ft_frames, dr10 / 10, dr10 % 10);
+                }
             }
         }
     }
