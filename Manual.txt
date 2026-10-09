@@ -1,0 +1,337 @@
+
+  ___                     _        ____  _             ____ __  __
+ / _ \  ___  _ __   ___  ___ (_)___  |  _ \| |_   _ ___  / _\ \/ /
+| | | |/ _ \| '_ \ / _ \/ __|| / __| | |_) | | | | / __| \ \ >  <
+| |_| |  __/| | | |  __/\__ \| \__ \ |  __/| | |_| \__ \ _\ / /\ \
+ \__  |\___||_| |_|\___||___/|_|___/ |_|   |_|\__,_|___/ \__/_/  \_\
+    |_|
+
+          Sega Genesis / Mega Drive Emulator for AmigaOS 3.x
+                    PiStorm / Emu68 Edition  v1.6
+          ___________________________________________________
+
+
+CONTENTS
+--------
+  1. Quick Start
+  2. Command Line
+  3. Controls
+  4. Save States & Battery Backup
+  5. Cheat Codes
+  6. Audio Guide
+  7. Configuration File
+  8. Hotkeys
+  9. Troubleshooting
+
+
+===========================================================================
+1. QUICK START
+===========================================================================
+
+  Copy GenesisPlusGX to a directory of your choice (e.g. Games:Emulators/).
+  Run it from Shell or use the MUI Launcher (GenesisPlusGX_Launcher).
+
+  Shell:
+    GenesisPlusGX rom.bin
+
+  MUI Launcher:
+    Double-click GenesisPlusGX_Launcher, browse to your ROM, set options,
+    click Start.
+
+  Supported ROM formats:  .bin  .gen  .md  .smd  .sms  .gg  .zip
+  (ZIP archives are extracted in memory - no unpacking needed)
+
+  The emulator auto-creates a config file (GenesisPlusGX.cfg) and a States/
+  directory in PROGDIR: on first run.  No other setup is required.
+
+
+===========================================================================
+2. COMMAND LINE
+===========================================================================
+
+  GenesisPlusGX <romfile> [options]
+
+  VIDEO OPTIONS
+  -------------
+  -scanlines        2x scanlines (medium intensity)
+  -scanlines=N      Scanline level: 1=subtle  2=medium  3=strong
+  -vsync            WaitTOF vertical sync (may drop to 30fps if too slow)
+
+  AUDIO OPTIONS
+  -------------
+  (default)         8-bit Paula stereo, 41243 Hz
+  -14bit            14-bit Paula stereo (4 DMA channels, higher quality)
+  -paulafreq=N      Paula sample rate in Hz (default 41243, max 44100)
+  -ahi              AHI retargetable audio (use with sound cards)
+  -ahifreq=N        AHI sample rate: 22050 / 27710 / 32000 / 44100
+  -paulafilter      Enable Amiga LED filter (~12 kHz low-pass)
+  -nosound          Disable audio entirely (fastest)
+
+  PERFORMANCE OPTIONS
+  -------------------
+  -frameskip=N      Skip N frames (1=render every 2nd, 2=every 3rd, ...)
+  -fps              Show FPS counter in top-right corner
+
+  EXAMPLES
+  --------
+  GenesisPlusGX Sonic.bin
+  GenesisPlusGX Sonic.bin -14bit -scanlines -fps
+  GenesisPlusGX Streets.bin -ahi -fps
+  GenesisPlusGX SlowGame.bin -nosound -frameskip=1
+
+
+===========================================================================
+3. CONTROLS
+===========================================================================
+
+  PLAYER 1 - KEYBOARD
+  --------------------
+  Arrow Keys          D-Pad
+  1                   A  (SMS/GG: Button 1)
+  2                   B  (SMS/GG: Button 2)
+  3                   C
+  Q                   X  (6-button Genesis only)
+  W                   Y  (6-button Genesis only)
+  E                   Z  (6-button Genesis only)
+  Space / Return      Start
+  Escape              Quit
+
+  PLAYER 2 - NUMPAD
+  -----------------
+  8 / 2 / 4 / 6       D-Pad
+  0                   A
+  .  (decimal)        B
+  Enter               C
+  Help                Start
+
+  A second joystick or CD32 pad in the mouse port also controls Player 2.
+
+  CD32 GAMEPAD (via lowlevel.library)
+  ------------------------------------
+  D-Pad               D-Pad
+  Blue                A  (SMS/GG: Button 1)
+  Red                 B  (SMS/GG: Button 2)
+  Green               C
+  Yellow              Y
+  Play/Forward        Start
+  Reverse             Mode
+
+  NOTE: For Master System and Game Gear games only Button 1 and Button 2
+  are active.  6-button keys, C, and Mode are unused.
+
+  Button assignments can be remapped in the configuration file.
+
+
+===========================================================================
+4. SAVE STATES & BATTERY BACKUP
+===========================================================================
+
+  SAVE STATES
+  -----------
+  F5  Save state     F8  Load state
+
+  A brief on-screen message confirms each action.
+  Files are stored in PROGDIR:States/ with the extension .gsx
+
+    Example:  PROGDIR:States/Sonic.gsx
+
+  States capture the complete emulator state: CPU registers, RAM, VRAM,
+  sound chips, and mapper.  Compatible with GPGX 1.7.6 format.
+
+  BATTERY BACKUP (SRAM)
+  ---------------------
+  Games with battery-backed save RAM (RPGs, sports season modes, etc.)
+  are saved automatically to a .srm file when you quit, and reloaded
+  the next time you start the same ROM.
+
+    Example:  PROGDIR:States/Shining_Force.srm
+
+  SRAM is also saved whenever you press F5 as an extra safety net.
+  The file is only written when the SRAM contents have actually changed.
+
+
+===========================================================================
+5. CHEAT CODES
+===========================================================================
+
+  SETUP
+  -----
+  Create a Cheats/ directory next to GenesisPlusGX:
+
+    makedir PROGDIR:Cheats
+
+  Copy RetroArch-compatible .cht files there.  The filename must match
+  the ROM name without extension:
+
+    ROM:   PROGDIR:Sonic.bin
+    Cheats: PROGDIR:Cheats/Sonic.cht
+
+  Cheats are loaded automatically when the ROM starts.
+
+  ENABLING CHEATS
+  ---------------
+  All cheats default to disabled.  Open the .cht file in a text editor
+  and change the desired entry from:
+
+    cheat0_enable = false
+
+  to:
+
+    cheat0_enable = true
+
+  Example .cht file:
+
+    cheat0_desc = "Infinite Lives"
+    cheat0_code = "009A64:0009"
+    cheat0_enable = true
+
+    cheat1_desc = "Invincibility"
+    cheat1_code = "ARFA-AA6C+ARFA-AA6T"
+    cheat1_enable = false
+
+  SUPPORTED CODE FORMATS
+  ----------------------
+  Game Genie       8-character code (e.g. ARFA-AA6C)
+  GameShark / AR   Hex address:data  (e.g. 009A64:0009)
+  Multiple codes   Joined by + in one cheat entry
+
+  ROM patches are applied once at load time.
+  RAM patches are reapplied every frame (games reset RAM values each frame).
+  Master codes (lock-on protection, odd addresses) are silently skipped.
+
+
+===========================================================================
+6. AUDIO GUIDE
+===========================================================================
+
+  CHOOSING A BACKEND
+  ------------------
+  8-bit Paula (default)
+    Hardware DMA, near-zero CPU.  Best for slow setups.
+    Stereo output using all 4 Paula channels.
+
+  14-bit Paula  (-14bit)
+    Uses 4 DMA channels for 14-bit resolution.  Better quality.
+    Slightly more DMA bandwidth used.
+
+  AHI  (-ahi)
+    Software retargetable audio.  Required for setups without Paula.
+    Non-blocking ring buffer, zero audio drops at 60fps.
+
+  RECOMMENDED FREQUENCIES
+  -----------------------
+  44100 Hz    CD quality, RTG only (default for AHI)
+  41243 Hz    Near-CD, RTG only (default for Paula)
+  27710 Hz    Optimal DMA ratio, works in all display modes
+  22050 Hz    Good quality, less CPU, for slower systems
+  16000 Hz    Acceptable for very slow setups
+  11025 Hz    Minimum usable quality
+
+  Frequencies above ~28600 Hz require RTG-only display (no bitplane DMA).
+  All PiStorm/Emu68 RTG setups qualify.
+
+  PISTORM / EMU68 USERS
+  ---------------------
+  Timer.device on PiStorm can fire up to 5ms late.  Set paulamargin=200
+  (or ahimargin=220 for AHI) in the config file to prevent audio gaps:
+
+    paulamargin=200
+
+  The default (0) is correct for WinUAE and accurate-timer setups.
+
+
+===========================================================================
+7. CONFIGURATION FILE
+===========================================================================
+
+  Location:  PROGDIR:GenesisPlusGX.cfg
+  Auto-created on first run.  Edit with any text editor.
+  Command line arguments always override config file settings.
+
+  KEY SETTINGS
+  ------------
+  audio=paula           Backend: paula / 14bit / ahi / off
+  paulafreq=41243       Paula sample rate in Hz
+  ahifreq=44100         AHI sample rate in Hz
+  paulastereo=1         Paula stereo (1) or mono (0)
+  paulaboost=1          Volume boost: 0=1x  1=2x  2=4x  3=8x
+  ahiboost=0            AHI volume boost (same scale)
+  paulamargin=0         Extra Paula buffer samples (200 for PiStorm)
+  ahimargin=0           Extra AHI buffer samples (220 for PiStorm)
+  paulafilter=0         LED low-pass filter: 0=off  1=on
+  fmvol=60              FM synth volume (10-100)
+  psgvol=60             PSG volume (10-200)
+  hqfm=1                FM quality: 1=band-limited  0=linear (much faster)
+  hqpsg=1               PSG quality: 1=band-limited  0=linear (faster)
+  screendepth=32        Screen depth: 32 (PiStorm/VideoCore) or 16
+                          (classic Zorro RTG cards - half blit bandwidth)
+  scanlines=0           0=off  1=subtle  2=medium  3=strong
+  vsync=0               VSync: 0=off  1=on
+  frameskip=0           0=none  1-5=skip N frames
+  autoskip=1            Auto frame skip: 0=off  1=on
+  fps=1                 FPS counter: 0=off  1=on
+
+  BUTTON MAPPING EXAMPLE
+  ----------------------
+  p1_a=1                Key names: a-z, 0-9, space, enter, tab, help,
+  p1_b=2                  lshift, rshift, lalt, ralt, lctrl, del,
+  p1_c=3                  comma, period, slash, semicolon, minus,
+  p1_start=space          f1-f10, np0-np9, npdot, npenter, npplus,
+  p2_a=np0                npminus - or a hex rawkey code like 0x20.
+  p2_start=help         Buttons: a b c x y z start mode, prefix p1_/p2_
+
+
+===========================================================================
+8. HOTKEYS (IN-GAME)
+===========================================================================
+
+  F5          Save state
+  F8          Load state
+  Escape      Quit
+
+
+===========================================================================
+9. TROUBLESHOOTING
+===========================================================================
+
+  NO SOUND / CRACKLING
+    Try adding paulamargin=200 (Paula) or ahimargin=220 (AHI) to the
+    config file.  This compensates for PiStorm timer jitter.
+    If that does not help, try a lower sample rate: -paulafreq=22050
+
+  TOO SLOW / DROPPING FRAMES
+    Set hqfm=0 in the config - much cheaper FM synthesis, big CPU saving.
+    On classic Amigas with Zorro RTG cards, set screendepth=16 (halves
+    the video bandwidth).
+    Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).
+    Or try -frameskip=1 to skip every other frame.
+    Check fps=1 is set to monitor actual frame rate.
+
+  AUDIO DISTORTION / TOO QUIET
+    Adjust paulaboost or ahiboost in the config (0=1x up to 3=8x).
+    Default paulaboost=1 (2x).  Lower fmvol/psgvol if clipping.
+
+  WRONG SCREEN SIZE / TEARING
+    -scanlines enables 2x scaling mode.  Without -scanlines the output
+    is 1x (320x240).  Try -vsync to reduce tearing (may lower framerate).
+
+  CHEATS NOT WORKING
+    Check PROGDIR:Cheats/<romname>.cht exists and the filename matches
+    the ROM exactly (without extension, case-sensitive on some volumes).
+    Open the .cht file and confirm cheatN_enable = true for each cheat.
+    RAM patches are reapplied every frame; ROM patches apply at load time.
+
+  SAVE STATES NOT WORKING
+    Ensure PROGDIR:States/ directory exists.  It is created automatically
+    on first run, but may require write access.
+
+  GAME DOES NOT LOAD
+    Check the ROM file extension: .bin .gen .md .smd .sms .gg .zip are
+    supported.  Maximum ROM size is 8MB (uncompressed).
+    ZIP archives must contain a ROM with a known extension inside.
+
+
+===========================================================================
+  Genesis Plus GX (c) Eke-Eke  --  AmigaOS port for PiStorm / Emu68
+  Non-commercial use only.  See LICENSE.txt for full terms.
+===========================================================================

@@ -1,0 +1,21 @@
+# Build artifacts
+*.o
+.depend
+GenesisPlusGX
+GenesisPlusGX-Launcher
+GenesisPlusGX-Config
+*.stripped
+
+# Game ROMs - commercial software, never commit these
+roms/
+Roms/
+
+# Machine-local Claude Code permission state
+.claude/settings.local.json
+
+# Runtime data created on the Amiga side
+States/
+Cheats/
+*.cfg
+*.srm
+*.gsx

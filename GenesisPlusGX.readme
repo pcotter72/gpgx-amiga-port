@@ -1,0 +1,227 @@
+Short:    Sega Genesis/Mega Drive emulator for CaffeineOS/AmigaOS
+Author:   Pedro Cotter
+Uploader: Pedro Cotter
+Type:     misc/emu
+Version:  1.5
+Requires: PiStorm/Emu68, CaffeineOS, CyberGraphX, 8MB+ RAM
+Architecture: m68k-amigaos
+
+
+GenesisPlusGX v1.5 for CaffeineOS/AmigaOS
+==========================================
+
+A Sega Genesis / Mega Drive emulator for PiStorm/Emu68 systems
+running CaffeineOS or AmigaOS 3.x with CyberGraphX.
+
+Based on Genesis Plus GX by Charles MacDonald / ekeeke.
+Amiga port by Pedro Cotter.
+
+
+Requirements
+------------
+
+- PiStorm with Emu68 JIT
+- CaffeineOS or AmigaOS 3.x
+- CyberGraphX (RTG)
+- 8 MB RAM minimum (16 MB recommended)
+- Chip RAM available for Paula audio buffers
+
+
+Installation
+------------
+
+1. Copy GenesisPlusGX anywhere on your hard drive
+2. Run it from Shell/CLI with a ROM path
+3. A default config file is created on first run
+
+
+Usage
+-----
+
+  GenesisPlusGX <romfile> [options]
+
+  Options:
+
+    -14bit          Use 14-bit Paula stereo audio (4 channels)
+    -ahi            Use AHI audio output
+    -nosound        Disable audio
+    -paulafreq=N    Paula/14bit sample rate (default: 44100)
+    -ahifreq=N      AHI sample rate: 22050, 27710, 32000, 44100
+    -scanlines=N    Scanline mode: 0=off, 1=25%, 2=50%, 3=75%
+    -vsync=N        VSync: 0=off (default), 1=on (double-buffered)
+    -frameskip=N    Frameskip: 0=off, 1=auto, 2=every 2nd, 3=every 3rd
+    -fps=N          FPS counter: 0=off, 1=on
+    -fmvol=N        FM preamp 10-100 (default: 85)
+    -psgvol=N       PSG preamp 10-200 (default: 80)
+
+  Examples:
+
+    GenesisPlusGX roms/Sonic2.md
+    GenesisPlusGX roms/OutRun.md -14bit -vsync=1 -fps=1
+    GenesisPlusGX roms/SoR2.md -ahi -ahifreq=44100
+
+
+Controls
+--------
+
+  D-Pad          Arrow keys / Joystick
+  A              Z / Fire 1
+  B              X / Fire 2
+  C              C / Fire 3
+  Start          Enter
+
+  F5             Save state
+  F8             Load state
+  ESC            Quit
+
+
+Configuration File
+------------------
+
+  PROGDIR:GenesisPlusGX.cfg
+
+  Created automatically on first run. Edit with any text editor.
+
+  ; audio: paula (8bit stereo), 14bit (14bit stereo), ahi, off
+  audio=paula
+  paulafreq=44100
+  ahifreq=44100
+  scanlines=2
+  vsync=0
+  frameskip=2
+  fps=1
+  fmvol=85
+  psgvol=80
+  paulafilter=0
+  paulaboost=1
+  paulastereo=1
+  ahiboost=1
+
+  Command line options override config file settings.
+  Delete the config file to regenerate with defaults.
+
+
+Audio Modes
+-----------
+
+  paula (default)
+    8-bit stereo via audio.device. Two channels, lowest CPU cost.
+    Good quality for most games. Uses paulaboost for volume.
+
+  14bit
+    14-bit stereo via audio.device. Four Paula channels:
+    HI pair (volume 64) + LO pair (volume 1).
+    Slightly better quality on clean PCM samples.
+    Uses paulaboost for volume. ~2x audio CPU vs 8-bit.
+
+  ahi
+    16-bit stereo via AHI. Best quality, requires AHI drivers.
+    Uses ahiboost for volume.
+
+  paulaboost / ahiboost values:
+    0 = 1x (quiet, no clipping)
+    1 = 2x (default, good balance)
+    2 = 4x (loud, may clip on loud games)
+
+
+Video
+-----
+
+  Opens a CyberGraphX RTG screen in 16-bit color.
+  BGRA pixel format is auto-detected and preferred.
+  Double-buffered VSync available via vsync=1.
+
+  Scanline modes simulate CRT look:
+    0 = off (sharp pixels)
+    1 = 25% darkening
+    2 = 50% darkening (recommended)
+    3 = 75% darkening
+
+
+Save States / SRAM
+------------------
+
+  F5 saves emulator state to PROGDIR:saves/<romname>.gsx
+  F8 loads saved state.
+
+  Battery-backed SRAM is auto-saved on exit and auto-loaded
+  on startup to PROGDIR:saves/<romname>.srm
+
+
+Supported Formats
+-----------------
+
+  .md  .bin  .smd  .gen  - Genesis/Mega Drive ROMs
+  .gg                     - Game Gear ROMs
+  .sms                    - Master System ROMs
+
+  Max ROM size: 8 MB. Zipped ROMs are not supported.
+
+
+Changes
+-------
+
+  v1.5 (19.02.2026)
+  - Paula audio backend rewritten to be fully non-blocking
+    WaitIO() replaced with CheckIO() poll across all slots
+    Eliminates cascading buffer underruns on Pi 3 PiStorm
+    Paula and Paula14 buffer count increased from 3 to 4
+  - New lowcpu config option (lowcpu=1)
+    Disables hq_fm and hq_psg, saving ~4ms/frame on Pi 3
+    No audible difference on 8-bit Paula output
+  - New -lowcpu command line flag
+  - New 'make pi3' / 'build.bat pi3' convenience build target
+    Compiles with all ASM optimisations for Pi 3 PiStorm
+
+  v1.4 (18.02.2026)
+  - 14-bit Paula audio rewritten using audio.device CMD_WRITE
+  - 14-bit now uses same triple-buffered approach as 8-bit
+  - Volume boost (paulaboost) support for 14-bit mode
+  - BGRA pixel format auto-detection for VideoCore
+  - FPS counter ghosting fix
+  - Config file comments updated with audio mode descriptions
+
+  v1.3 (17.02.2026)
+  - BGRA mode selection for RTG screens
+  - Fast RAM staging for Paula audio buffers
+  - 14-bit Paula audio backend (initial)
+  - FPS counter overlay
+
+  v1.2
+  - Configuration file support (GenesisPlusGX.cfg)
+  - Scanline rendering modes
+  - AHI audio backend
+  - Double-buffered VSync
+
+  v1.1
+  - Save state support (F5/F8)
+  - SRAM battery backup persistence
+  - Stereo Paula audio
+  - Volume boost options
+
+  v1.0
+  - Initial release
+  - Genesis/Mega Drive, Game Gear, Master System
+  - Paula 8-bit audio
+  - CyberGraphX RTG video
+  - Keyboard and joystick input
+
+
+Credits
+-------
+
+  Genesis Plus GX core:  Charles MacDonald, ekeeke
+  Amiga port:            Pedro Cotter
+  Emu68 JIT:             Michal Schulz
+  CaffeineOS:            CaffeineOS Team
+
+  Based on research by:
+  - Henryk Richter (Paula audio analysis)
+  - Christian Buchner (14-bit calibration method)
+
+
+License
+-------
+
+  Genesis Plus GX is licensed under a non-commercial license.
+  See LICENSE.txt for details.

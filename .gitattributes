@@ -1,0 +1,4 @@
+# Byte-exact checkout on every host. AmigaOS sources must stay LF-only and
+# some files carry Latin-1 or raw control bytes, so no line-ending or text
+# conversion must ever be applied to them.
+* -text

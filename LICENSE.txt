@@ -1,0 +1,68 @@
+Genesis Plus GX - AmigaOS/CaffeineOS Port
+==========================================
+
+LICENSE TERMS
+-------------
+
+This software is based on Genesis Plus GX by Eke-Eke, which is distributed
+under a NON-COMMERCIAL license:
+
+  - Redistributions may not be sold, nor may they be used in a commercial
+    product or activity.
+  - Redistributions that are modified from the original source must include
+    the complete source code, including the source code for all components
+    used by a binary built from the modified sources.
+  - All modified source files must include prominent notices stating that
+    the files were changed and the date of any change.
+
+Original Genesis Plus by Charles MacDonald.
+Genesis Plus GX by Eke-Eke: https://github.com/ekeeke/Genesis-Plus-GX
+
+AmigaOS/CaffeineOS port by Pedro Cotter.
+
+
+THIRD-PARTY COMPONENTS
+----------------------
+
+blip_buf
+  Copyright (C) 2003-2009 Shay Green
+  GNU Lesser General Public License v2.1 or later (LGPL-2.1+)
+
+Tremor (integer Ogg Vorbis decoder)
+  Copyright (c) 2002, Xiph.org Foundation
+  BSD 3-Clause License
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  - Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+  - Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+  - Neither the name of the Xiph.org Foundation nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
+
+Musashi 68000 Emulator
+  Copyright (C) Karl Stenerud
+  MIT-style license (see core/m68k/readme.txt)
+
+Z80 CPU Emulator
+  Based on code by Juergen Buchmueller
+  See core/z80/z80.h for license terms
+
+minimp3
+  Public domain (CC0) by lieff
+
+NTSC Filters
+  Copyright (C) 2006 Shay Green
+  GNU Lesser General Public License v2.1 or later (LGPL-2.1+)
+
+
+NOTICE
+------
+
+This is a non-commercial, free distribution intended for the Amiga
+retro-computing community. It may not be sold or included in any
+commercial product.

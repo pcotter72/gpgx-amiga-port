@@ -1,0 +1,488 @@
+# Genesis Plus GX - AmigaOS/CaffeineOS Port
+
+A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically targeting PiStorm/Emu68 accelerated Amigas running CaffeineOS.
+
+## Features
+
+- Sega Genesis / Mega Drive emulation at full 60fps (NTSC) / 50fps (PAL)
+- Master System and Game Gear emulation
+- ZIP ROM loading (archives extracted in memory via miniz)
+- 32-bit BGRA CyberGraphX/P96 RTG video output (VideoCore native format)
+- Optional 16-bit RTG output (`screendepth=16`) — half the blit bandwidth,
+  direct RGB565 row copy on native screens; ideal for classic Zorro RTG cards
+- Optional 2x scaling with configurable scanline effects
+- VSync support for reduced tearing
+- Three audio backends: 8-bit Paula (mono/stereo), 14-bit Paula stereo, AHI
+- Paula stereo output with true left/right channel separation
+- Post-blip volume boost for louder 8-bit output without resampler distortion
+- 14-bit Paula calibration support (auto-loads from ENV:CyberSound/SoundDrivers/14Bit_Calibration)
+- Configurable sample rates for all audio backends
+- Configurable synthesis quality (`hqfm`/`hqpsg`) — linear mode is a large
+  CPU saving on slow machines (Pi 3, real 68030)
+- **Non-blocking Paula audio** with quad-buffer ring
+- Non-blocking AHI audio with ring buffer (zero-drop at 60fps)
+- Keyboard and CD32 gamepad input via lowlevel.library
+- 68k assembly optimized video blitting, audio conversion, and resampling
+- Save states (F5 to save, F8 to load) with on-screen feedback
+- Automatic SRAM battery backup (saves on exit, loads on start)
+- Cheat code support via RetroArch `.cht` files (Game Genie + GameShark/AR formats)
+- Configuration file (`PROGDIR:GenesisPlusGX.cfg`, auto-created)
+- FPS counter overlay
+
+## Requirements
+
+### Target System
+- AmigaOS 3.0 or higher (3.2 recommended)
+- 68030 CPU minimum (PiStorm/Emu68 recommended)
+- 8MB+ Fast RAM
+- CyberGraphX or Picasso96 RTG system
+- Paula chip (for 8-bit/14-bit audio) or AHI (for sound card audio)
+
+### Minimum Hardware
+- **Raspberry Pi CM4 or Pi 4** with PiStorm/PiStorm32 (recommended)
+- Amiga 500/2000 with PiStorm + Pi 3 series: video only (no sound),
+  the Pi 3 is too slow to emulate the Genesis sound chips at full speed.
+
+### Tested Configurations
+- Amiga 1200 + PiStorm32-Lite + CM4 (Emu68) — **full speed with sound**
+- Amiga 500/2000 + PiStorm + Pi 3A+ (Emu68) — **video only, use -nosound**
+
+### Build Requirements
+- bebbo's amiga-gcc cross-compiler (GCC 6.5+)
+  - Windows installer: http://franke.ms/download/setup-amiga-gcc.exe
+  - GitHub: https://github.com/bebbo/amiga-gcc
+
+## Building
+
+### Quick Start (Windows CMD)
+
+```cmd
+build.bat              &:: Build for 68030 + all ASM optimizations (recommended)
+build.bat 68040        &:: Build for 68040 with FPU
+build.bat pi3          &:: Build for Pi 3 PiStorm (LTO)
+build.bat launcher     &:: Build MUI launcher only
+build.bat clean        &:: Clean build files
+```
+
+`build.bat` always passes `USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1`.
+
+### Full Build with ASM Optimizations (Recommended)
+
+```bash
+make clean
+make USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
+```
+
+> **Note:** Incremental builds must repeat the same flag set — `make` cannot
+> detect `-D` flag changes in existing object files.
+
+### Build Options
+
+| Option | Description |
+|--------|-------------|
+| `CPU=68030` | Default, Emu68 compatible |
+| `CPU=68040` | 68040 with hardware FPU |
+| `CPU=68060` | 68060 with hardware FPU |
+| `CPU=68080` | Apollo/Vampire 68080 |
+| `USE_ASM_AUDIO=1` | Assembly-optimized Paula audio conversion |
+| `USE_ASM_VIDEO=1` | Assembly-optimized RGB565-to-RGBA blitters |
+| `USE_ASM_BLIP=1` | Assembly-optimized blip_buf resampling |
+| `USE_ZIP=1` | ZIP ROM support (miniz, in-memory extraction) |
+| `LIBC=nix20` | libnix runtime (default) |
+| `LIBC=clib2` | clib2 runtime |
+| `debug` | Build with debug symbols |
+| `small` | Size-optimized build |
+
+### Linux / macOS
+
+```bash
+git clone https://github.com/bebbo/amiga-gcc
+cd amiga-gcc && make update && sudo make all PREFIX=/opt/amiga
+export PATH=/opt/amiga/bin:$PATH
+
+cd /path/to/gpgx-amiga
+make USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
+```
+
+## Usage
+
+```
+GenesisPlusGX <romfile> [options]
+```
+
+Supported ROM formats: `.bin`, `.gen`, `.md`, `.smd`, `.sms`, `.gg`, `.zip`
+(ZIP archives are extracted in memory; the first file with a known ROM
+extension inside the archive is loaded)
+
+### Examples
+
+```bash
+# Default: 8-bit Paula, 1x scale
+GenesisPlusGX rom.bin
+
+# 14-bit stereo audio with scanlines and FPS counter
+GenesisPlusGX rom.bin -14bit -scanlines -fps
+
+# AHI audio (for systems without Paula)
+GenesisPlusGX rom.bin -ahi -fps
+
+# Maximum quality: 14-bit audio, strong scanlines, vsync
+GenesisPlusGX rom.bin -14bit -scanlines=3 -vsync -fps
+
+GenesisPlusGX rom.bin -paulafreq=22050 -fps
+```
+
+### Command-Line Options
+
+#### Video Options
+| Option | Description |
+|--------|-------------|
+| `-scanlines` | Enable 2x scanlines (medium intensity) |
+| `-scanlines=N` | Scanline level 1-3 (1=subtle, 2=medium, 3=strong) |
+| `-vsync` | Enable VSync via WaitTOF (reduces tearing, may cap at 30fps if too slow) |
+
+#### Audio Options
+| Option | Description |
+|--------|-------------|
+| `-14bit` | 14-bit Paula stereo (4 channels, higher quality) |
+| `-paulafreq=N` | Paula sample rate in Hz (default: 41243, up to 44100 in RTG) |
+| `-ahi` | Use AHI audio system (for sound cards, systems without Paula) |
+| `-ahifreq=N` | AHI sample rate: 22050, 27710, 32000, 44100 (default: 44100) |
+| `-paulafilter` | Enable Amiga hardware low-pass filter (LED filter, ~12kHz cutoff) |
+| `-nosound` | Disable audio entirely (maximum speed) |
+
+Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `paulamargin`, `ahimargin`, `hqfm`, `hqpsg`, `screendepth` (see Configuration section).
+
+#### Performance Options
+| Option | Description |
+|--------|-------------|
+| `-frameskip=N` | Skip N frames (1=50%, 2=33%, 3=25% render) |
+| `-fps` | Show FPS counter in top-right corner |
+
+### Audio Backend Guide
+
+**8-bit Paula (default)** -- Hardware DMA, near-zero CPU usage for playback. Best for slow setups. Supports mono or stereo output (`paulastereo=1`). With stereo enabled, uses all 4 Paula channels (0+3 left, 1+2 right) for true left/right separation. Volume boost (`paulaboost`) amplifies the clean signal after resampling for louder output.
+
+**14-bit Paula** (`-14bit`) -- Uses 4 DMA channels to achieve 14-bit stereo. Better audio quality, slightly more DMA bandwidth. On A500 with heavy DMA contention, consider lowering frequency with `-paulafreq=22050`.
+
+**AHI** (`-ahi`) -- Software audio through the AHI retargetable audio system. Required for setups without Paula (e.g., some Amithlon/WinUAE configurations). Non-blocking ring buffer implementation achieves zero audio drops at 60fps. Default 44100Hz for best quality.
+
+### Recommended Paula Frequencies
+
+| Frequency | Period | Samples/frame | Notes |
+|-----------|--------|---------------|-------|
+| 44100 Hz | 80 | ~735 | CD quality, RTG only (no bitplane DMA) |
+| 41243 Hz | 86 | ~687 | **Default**, near-CD, RTG only |
+| 27710 Hz | 128 | ~462 | Optimal DMA:DAC ratio, all display modes |
+| 22050 Hz | 162 | ~368 | Good quality, less CPU |
+| 16000 Hz | ~222 | ~267 | Acceptable, for very slow systems |
+| 11025 Hz | ~322 | ~184 | Low quality, minimum usable |
+
+Frequencies above ~28600 Hz (period < 124) require RTG-only display modes where Paula has no bitplane DMA contention on the chip bus. All PiStorm/Emu68 setups with RTG screens qualify.
+
+## Controls
+
+### Player 1 (Keyboard)
+| Key | Genesis Button | SMS/GG Button |
+|-----|----------------|---------------|
+| Arrow Keys | D-Pad | D-Pad |
+| 1 | A | Button 1 |
+| 2 | B | Button 2 |
+| 3 | C | — |
+| Q | X (6-button) | — |
+| W | Y (6-button) | — |
+| E | Z (6-button) | — |
+| Space / Enter | Start | Start (GG only) |
+| Escape | Quit | Quit |
+
+> **Note:** For Master System and Game Gear ROMs, only Button 1 and Button 2 are active. The 6-button keys (Q/W/E) and C are unused.
+
+### Player 2 (Numpad)
+| Key | Genesis Button |
+|-----|----------------|
+| Numpad 8/2/4/6 | D-Pad |
+| Numpad 0 | A |
+| Numpad . | B |
+| Numpad Enter | C |
+| Help | Start |
+
+A second joystick/CD32 pad in the mouse port also controls player 2.
+
+### CD32 Gamepad (via lowlevel.library)
+| CD32 Button | Genesis Button | SMS/GG Button |
+|-------------|----------------|---------------|
+| D-Pad | D-Pad | D-Pad |
+| Blue | A | Button 1 |
+| Red | B | Button 2 |
+| Green | C | — |
+| Yellow | Y | — |
+| Play/Forward | Start | Start (GG only) |
+| Reverse | Mode | — |
+
+### Hotkeys
+| Key | Action |
+|-----|--------|
+| F5 | Save state |
+| F8 | Load state |
+| Escape | Quit |
+
+## Cheat Codes
+
+Cheats are loaded automatically from `PROGDIR:Cheats/<romname>.cht` when a ROM is started. Create a `Cheats/` directory next to the emulator executable and copy RetroArch-compatible `.cht` files there.
+
+### File Format
+
+RetroArch `.cht` files are plain text with numbered entries:
+
+```
+cheat0_desc = "Infinite Lives"
+cheat0_code = "009A64:0009"
+cheat0_enable = false
+
+cheat1_desc = "Max Money"
+cheat1_code = "ARFA-AA6C+ARFA-AA6T"
+cheat1_enable = false
+```
+
+Codes are separated by `+` when multiple patches make up one cheat.
+
+### Enabling Cheats
+
+All cheats are **disabled by default** (`enable = false`). To activate a cheat, open the `.cht` file in a text editor and change the desired entry to:
+
+```
+cheatN_enable = true
+```
+
+Only entries with `enable = true` are applied when the ROM loads.
+
+### Supported Code Formats
+
+| Format | Example | Notes |
+|--------|---------|-------|
+| Game Genie | `ARFA-AA6C` | 8-character GG alphabet code |
+| GameShark / Action Replay | `009A64:0009` | `AAAAAA:DDDD` hex address:data |
+
+Codes are applied as:
+- **ROM patches**: even addresses within ROM range — written once at load time
+- **RAM patches**: addresses in Genesis work RAM range ($E00000+) — reapplied every frame since games reset RAM values each frame
+- **Master codes**: odd addresses (lock-on protection) — silently skipped, not needed
+
+### Finding Cheat Files
+
+RetroArch cheat repositories contain thousands of `.cht` files ready to use. The filename must match the ROM filename without extension (e.g. `Sonic.cht` for `Sonic.bin`).
+
+## Save States & SRAM
+
+All save data is stored in the `States/` directory next to the emulator executable.
+
+### Save States (F5/F8)
+Press **F5** to save and **F8** to load. A brief on-screen message confirms the action.
+
+Save state files use the `.gsx` extension:
+- `PROGDIR:States/Sonic.gsx`
+
+States are compatible with the GPGX 1.7.6 format and capture the complete emulator state (CPU registers, RAM, VRAM, sound chips, mapper state).
+
+### Battery Backup (SRAM)
+Games with battery-backed save RAM (RPGs, sports games with season modes, etc.) are automatically saved to a `.srm` file when you quit, and reloaded on next launch:
+- `PROGDIR:States/Shining_Force.srm`
+
+SRAM is also saved whenever you save a state (F5), providing an extra safety net. The file is only written when the SRAM contents have actually changed.
+
+## Configuration
+
+Settings are stored in `PROGDIR:GenesisPlusGX.cfg`, which is auto-created on first run. Edit it with any text editor. Command line arguments always override config file settings.
+
+```
+; GenesisPlusGX config
+# Audio backend: paula, 14bit, ahi, off
+audio=paula
+
+# Paula sample rate in Hz (default: 41243, up to 44100 in RTG)
+paulafreq=41243
+
+# AHI sample rate: 22050, 27710, 32000, 44100 (default: 44100)
+ahifreq=44100
+
+# FM synth volume: 10-100 (default: 60)
+fmvol=60
+
+# PSG volume: 10-200 (default: 60)
+psgvol=60
+
+# Paula hardware low-pass filter: 0=off, 1=on (LED filter, 12kHz cutoff)
+paulafilter=0
+
+# Paula volume boost: 0=1x, 1=2x (default), 2=4x, 3=8x
+paulaboost=1
+
+# Paula stereo: 0=mono, 1=stereo (default, uses 4 DMA channels)
+paulastereo=1
+
+# AHI volume boost: 0=1x (default), 1=2x, 2=4x, 3=8x
+ahiboost=0
+
+# Buffer margin extra samples to absorb PiStorm timer jitter:
+#   0 = exact (default, correct for WinUAE / accurate timers)
+#   200/220 = for PiStorm/Emu68 where timer.device can fire up to 5ms late
+paulamargin=0
+ahimargin=0
+
+# Synthesis quality: 1=band-limited (default), 0=linear interpolation
+# hqfm=0 is one of the biggest CPU savings on Pi 3 / real 68030
+hqfm=1
+hqpsg=1
+
+# Screen depth: 32 (default, PiStorm/VideoCore fast path) or 16
+#   16 = RGB565 screen, half the blit bandwidth - recommended for classic
+#   Amigas with Zorro RTG cards. Falls back to 32 if no 16-bit mode exists.
+screendepth=32
+
+# Scanlines: 0=off (default), 1=subtle, 2=medium, 3=strong
+scanlines=0
+
+# VSync: 0=off (default), 1=on (may drop to 30fps)
+vsync=0
+
+# Frame skip: 0=none (default), 1-5=skip N frames
+frameskip=0
+
+# Auto frame skip: 0=off, 1=on (default)
+autoskip=1
+
+# FPS counter: 0=off, 1=on (default)
+fps=1
+```
+
+## Assembly Optimizations
+
+The port includes hand-written 68k assembly routines for the performance-critical paths. Enable them at build time with the `USE_ASM_*` flags.
+
+### Video (`USE_ASM_VIDEO=1`)
+- `Blit565toRGBA_asm` -- 1x RGB565 to RGBA32 via 64K LUT
+- `Blit565toRGBA_2x_asm` -- 2x scaled blit (no scanlines)
+- `Blit565toRGBA_2x_scanline_asm` -- 2x with dual-LUT scanline darkening (zero per-pixel math)
+
+### Audio (`USE_ASM_AUDIO=1`)
+- `ConvertMono8_asm` -- 16-bit stereo to 8-bit mono with volume boost, 4x unrolled
+- `ConvertStereo8_asm` -- 16-bit stereo to separate 8-bit L/R with volume boost, 4x unrolled
+- `Convert14Bit_Table_asm` -- 16-bit stereo to 14-bit via calibrated lookup table (Buchner/Richter method)
+
+### Blip Buffer (`USE_ASM_BLIP=1`)
+- `blip_read_samples_inner_asm` -- Stereo integrator with clamping and high-pass filter, register-optimized loop
+
+The scanline blitter uses a pre-computed darkened LUT (built at init based on scanline level) so the ASM inner loop does two LUT lookups per pixel instead of per-pixel RGB extraction and math. This benefits the C fallback path too.
+
+## Performance Notes
+
+### PiStorm Speed Tiers
+- **Pi Zero 2W / Pi 3 series**: Too slow for full-speed emulation with sound. Use `-nosound` for playable video-only mode.
+- **Pi CM4 / Pi 4** (1.5+ GHz): Full speed with sound. Recommended.
+
+### A500 vs A1200 Considerations
+The A500's OCS/ECS chipset has a 16-bit shared chip RAM bus where CPU and DMA alternate cycles. The A1200's AGA has a 32-bit bus running at double clock speed, giving 4x chip RAM bandwidth. This means:
+- On A500 PiStorm: Paula DMA and RTG framebuffer writes compete for bus time
+- On A1200 PiStorm32: Much more bandwidth available, less contention
+
+### VSync Limitation
+`-vsync` uses `WaitTOF()` which may not perfectly sync with the VideoCore HDMI scanout on Emu68 RTG. Some tearing may persist. This is a known PiStorm RTG stack limitation.
+
+## Technical Notes
+
+### Memory Usage
+- ROM buffer: Up to 8MB (configurable via MAXROMSIZE)
+- RGB565 to RGBA LUT: 256KB (+ 256KB for scanline dark LUT if enabled)
+- VRAM/Work RAM: ~136KB
+- Sound buffers: ~32KB
+- 14-bit calibration tables: 256KB (two 128KB lookup tables, Fast RAM)
+- Video buffer: ~150KB (640 bytes/line x 240 lines)
+- AHI ring buffers: ~12KB (4 x 3KB)
+
+Total: ~9MB minimum recommended
+
+### Endianness
+The 68k is big-endian, matching the emulated Genesis hardware. `WORDS_BIGENDIAN` is defined at build time. Some code paths are more efficient due to this native byte order match.
+
+### C Standard
+The codebase uses C89/gnu89 (`-std=gnu89`) as required for AmigaOS idiomatic code with bebbo's amiga-gcc 6.5.0b.
+
+### Audio Frequency Accuracy
+
+The emulated Genesis audio runs within spec. The relevant clock chain:
+
+- **Paula clock**: PAL Amiga 3,546,895 Hz / period 86 = **41,242.97 Hz** actual output
+- **Config value** (`paulafreq=41243`): integer truncation gives 41,242 Hz → **0.0024% error**
+- **blip_buf resampling**: Genesis master clock 53,693,175 Hz resampled to 41,242 Hz; the internal fixed-point ratio is ceiling-rounded → **+0.0013% additional pitch shift**
+- **Total pitch error**: < **0.003%** — well within spec, absorbed by the 200-sample buffer margin
+
+PSG tone accuracy follows Genesis hardware: the PSG runs from the same master clock and its tone divisors are integer, so pitch errors are hardware-accurate.
+
+### Compatibility
+The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.device, lowlevel.library) and should run on any 68k AmigaOS-compatible system with RTG, including Amithlon and WinUAE with appropriate drivers.
+
+## TODO / Roadmap
+
+- [x] Save states (F5/F8)
+- [x] SRAM battery backup persistence (auto-save/load)
+- [x] Configuration file support with version tracking
+- [x] Double-buffered screens for VSync
+- [x] 14-bit Paula calibration (Buchner/Richter, loads ENV:CyberSound/SoundDrivers/14Bit_Calibration)
+- [x] blip_read_samples ASM (Genesis FM+PSG resampling path)
+- [x] Paula stereo output (separate L/R 8-bit DMA channels)
+- [x] Post-blip volume boost (paulaboost/ahiboost)
+- [x] Configurable button mapping (per-player key bindings in config)
+- [x] Non-blocking Paula audio with quad-buffer ring
+- [x] MUI launcher GUI with ROM browser and full config editor (`build.bat launcher`)
+- [x] EClock hybrid frame timer (sub-millisecond accuracy, eliminates PiStorm timer jitter)
+- [x] Per-section profiling (input/emu/audio/video µs breakdown, printed every 300 frames)
+- [x] LTO enabled by default (whole-program optimisation across all C translation units)
+- [ ] blip_mix_samples ASM (for future Sega CD support, currently NO_SCD)
+- [x] Cheat code support via RetroArch `.cht` files (Game Genie + GameShark/AR, ROM + RAM patches)
+- [ ] Screenshot support
+- [ ] Sega CD support
+
+## Changelog
+
+### v1.6 (06.07.2026)
+
+**Fixed:**
+- **Player 2 input now works** — button state was written to the wrong core
+  device slot (`input.pad[1]` instead of `input.pad[4]`) since the first
+  release; keyboard/numpad and mouse-port joystick both control player 2 now
+- AHI buffer sized without blip_buf rounding headroom — 1-2 samples were
+  silently dropped nearly every frame (small waveform skip at each buffer
+  boundary)
+- 8-bit audio converters (ASM and C) now round-to-nearest consistently
+  instead of truncating
+- Keys no longer stick when the emulator window loses focus mid-keypress
+- Config parser now trims whitespace (`key = value` works)
+- A `.zip` ROM given to a binary built without `USE_ZIP=1` now reports a
+  clear error instead of silently loading garbage (black screen)
+- `make USE_ZIP=1` without an explicit target no longer builds only miniz
+- Failed audio backend init now disables sound chip emulation entirely
+  instead of generating audio that is never played
+
+**New:**
+- `screendepth=16` — 16-bit RTG output: half the blit bandwidth of the
+  32-bit path, direct RGB565 row copy on native-format screens; all eight
+  15/16-bit CGX pixel formats supported, safe fallback to 32-bit
+- `hqfm` / `hqpsg` — sound synthesis quality knobs; `hqfm=0` switches the
+  YM2612 to linear resampling, a large CPU saving for Pi 3 / real 68030
+- Launcher GUI now exposes every config setting, including the previously
+  file-only buffer margins, plus the new screen depth and HQ audio options
+
+## Credits
+
+- Genesis Plus GX by Eke-Eke: https://github.com/ekeeke/Genesis-Plus-GX
+- Original Genesis Plus by Charles MacDonald
+- bebbo's amiga-gcc toolchain: https://github.com/bebbo/amiga-gcc
+- Emu68 by Michal Schulz
+- PiStorm community
+- CaffeineOS distribution
+
+## License
+
+Genesis Plus GX is distributed under a non-commercial license. See LICENSE.txt for details.
+
+This port follows the same license terms as the original Genesis Plus GX project.
