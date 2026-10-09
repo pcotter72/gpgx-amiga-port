@@ -206,7 +206,6 @@ typedef struct {
     int scanlines, vsync, frameskip, autoskip, fps;
     int fmvol, psgvol;
     int paulaboost, paulastereo, paulafilter, ahiboost;
-    int paulamargin, ahimargin;
     int hqfm, hqpsg, screendepth;
     int gl_out, gl_effect, gl_w, gl_h;   /* GPU output (PiStorm3D) */
     int cheats;         /* preserved so saving the config does not drop the key */
@@ -220,7 +219,6 @@ static void config_defaults(Config *c)
     c->scanlines=0; c->vsync=0; c->frameskip=0; c->autoskip=1; c->fps=1;
     c->fmvol=60; c->psgvol=60;
     c->paulaboost=1; c->paulastereo=1; c->paulafilter=0; c->ahiboost=0;
-    c->paulamargin=0; c->ahimargin=0;
     c->hqfm=1; c->hqpsg=1; c->screendepth=32;
     c->gl_out=0; c->gl_effect=1; c->gl_w=640; c->gl_h=480;
     c->cheats=1;
@@ -292,8 +290,6 @@ static void config_load(Config *c)
         else if (!strcmp(key,"paulastereo")) c->paulastereo  = atoi(value)?1:0;
         else if (!strcmp(key,"paulafilter")) c->paulafilter  = atoi(value)?1:0;
         else if (!strcmp(key,"ahiboost"))    c->ahiboost     = atoi(value);
-        else if (!strcmp(key,"paulamargin")) c->paulamargin  = atoi(value);
-        else if (!strcmp(key,"ahimargin"))   c->ahimargin    = atoi(value);
         else if (!strcmp(key,"hqfm"))        c->hqfm         = atoi(value)?1:0;
         else if (!strcmp(key,"hqpsg"))       c->hqpsg        = atoi(value)?1:0;
         else if (!strcmp(key,"screendepth")) c->screendepth  = atoi(value);
@@ -339,10 +335,6 @@ done:
     if (c->paulaboost > 4) c->paulaboost = 4;
     if (c->ahiboost   < 0) c->ahiboost  = 0;
     if (c->ahiboost   > 4) c->ahiboost  = 4;
-    if (c->paulamargin < 0)   c->paulamargin = 0;
-    if (c->paulamargin > 882) c->paulamargin = 882;
-    if (c->ahimargin   < 0)   c->ahimargin   = 0;
-    if (c->ahimargin   > 882) c->ahimargin   = 882;
     if (c->screendepth != 16 && c->screendepth != 32) c->screendepth = 32;
     if (c->gl_effect < 0 || c->gl_effect > 3) c->gl_effect = 1;
 }
@@ -384,10 +376,6 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     snprintf(line,sizeof(line),"paulafilter=%d\n",c->paulafilter);       WR(line);
     WR("; ahiboost: 0=1x 1=2x 2=4x 3=8x 4=16x\n");
     snprintf(line,sizeof(line),"ahiboost=%d\n",c->ahiboost);             WR(line);
-    WR("; paulamargin/ahimargin: obsolete, ignored by the emulator. Audio buffers\n");
-    WR(";   hold exactly one frame and the queue depth is rate-controlled.\n");
-    snprintf(line,sizeof(line),"paulamargin=%d\n",c->paulamargin);       WR(line);
-    snprintf(line,sizeof(line),"ahimargin=%d\n",  c->ahimargin);         WR(line);
     WR("; hqfm/hqpsg: 1=band-limited synthesis, 0=linear (much faster FM on slow machines)\n");
     snprintf(line,sizeof(line),"hqfm=%d\n",c->hqfm);                     WR(line);
     snprintf(line,sizeof(line),"hqpsg=%d\n",c->hqpsg);                   WR(line);
@@ -1018,7 +1006,7 @@ struct AppData {
     Object *cy_audio, *str_paulafreq, *str_ahifreq;
     Object *cy_paulaboost, *cm_paulastereo, *cm_paulafilter, *cy_ahiboost;
     Object *sl_fmvol, *sl_psgvol;
-    Object *cm_hqfm, *cm_hqpsg, *sl_paulamargin, *sl_ahimargin;
+    Object *cm_hqfm, *cm_hqpsg;
     /* Cheats */
     Object *lv_cheats, *list_cheats, *tx_cheats, *cm_cheats;
     Object *bt_cheat_toggle, *bt_cheat_all, *bt_cheat_none;
@@ -1274,22 +1262,6 @@ static Object *create_gui(struct AppData *d, const Config *c)
                             Child, d->cm_hqpsg = CheckMark(c->hqpsg),
                             Child, Label1(STR("HQ PSG")),
                             Child, HSpace(0),
-                        End,
-
-                        Child, ColGroup(2), GroupFrame,
-                            MUIA_FrameTitle, STR("Buffer Margin  (obsolete - ignored by the emulator)"),
-                            Child, Label1(STR("Paula:")),
-                            Child, d->sl_paulamargin = SliderObject,
-                                MUIA_Numeric_Min,   0,
-                                MUIA_Numeric_Max,   882,
-                                MUIA_Numeric_Value, c->paulamargin,
-                            End,
-                            Child, Label1(STR("AHI:")),
-                            Child, d->sl_ahimargin = SliderObject,
-                                MUIA_Numeric_Min,   0,
-                                MUIA_Numeric_Max,   882,
-                                MUIA_Numeric_Value, c->ahimargin,
-                            End,
                         End,
 
                         Child, VSpace(0),
@@ -1571,8 +1543,6 @@ static void collect(struct AppData *d, Config *c)
     }
     get(d->cm_hqfm,        MUIA_Selected,      &val); c->hqfm        =(int)val;
     get(d->cm_hqpsg,       MUIA_Selected,      &val); c->hqpsg       =(int)val;
-    get(d->sl_paulamargin, MUIA_Numeric_Value, &val); c->paulamargin =(int)val;
-    get(d->sl_ahimargin,   MUIA_Numeric_Value, &val); c->ahimargin   =(int)val;
     get(d->cm_cheats,      MUIA_Selected,      &val); c->cheats      =(int)val;
     get(d->str_paulafreq,   MUIA_String_Contents, &s);
     c->paula_freq   = s ? atoi((char*)s) : 0;

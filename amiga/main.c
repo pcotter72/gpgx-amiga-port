@@ -2046,14 +2046,18 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         printf("Usage: %s <romfile> [options]\n", argv[0]);
-        printf("\nSupported formats: .bin, .gen, .md, .sms, .gg\n");
+#ifdef USE_ZIP
+        printf("\nSupported formats: .bin .gen .md .smd .rom .sms .gg .sg, or a .zip holding one\n");
+#else
+        printf("\nSupported formats: .bin .gen .md .smd .rom .sms .gg .sg\n");
+#endif
         printf("\nVideo options:\n");
         printf("  -scanlines    Enable scanlines (medium, 2x mode)\n");
         printf("  -scanlines=N  Scanline level 1-3 (1=subtle, 2=medium, 3=strong)\n");
         printf("  -vsync        Enable VSync (reduces tearing, may drop to 30fps)\n");
         printf("\nAudio options:\n");
         printf("  -14bit        Use 14-bit Paula stereo (higher quality, 4 channels)\n");
-        printf("  -paulafreq=N  Paula sample rate in Hz (max 44100 RTG, default: 27710)\n");
+        printf("  -paulafreq=N  Paula sample rate in Hz (default 41243; 0 = 27710)\n");
         printf("                Lower = less CPU. E.g. 22050, 16000, 13000\n");
         printf("  -ahi          Use AHI audio (for sound cards)\n");
         printf("  -ahifreq=N    AHI sample rate: 22050, 27710, 32000, 44100 (config default: 44100)\n");
@@ -2073,7 +2077,7 @@ int main(int argc, char *argv[])
         printf("  -glsize=WxH   GL screen size (default 640x480)\n");
         printf("  -glrgba       Upload RGBA8 instead of RGB565 (if colours look wrong)\n");
 #endif
-        printf("\nDefault audio: 8-bit Paula mono (27710Hz, hardware DMA)\n");
+        printf("\nDefault audio: 8-bit Paula stereo, 41243 Hz (see the config file)\n");
         printf("\nConfig file: PROGDIR:GenesisPlusGX.cfg (auto-created on first run)\n");
         printf("Command line options override config file settings.\n");
         return 5;
