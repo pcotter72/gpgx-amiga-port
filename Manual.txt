@@ -7,7 +7,7 @@
     |_|
 
           Sega Genesis / Mega Drive Emulator for AmigaOS 3.x
-                    PiStorm / Emu68 Edition  v1.7
+                    PiStorm / Emu68 Edition  v1.8
           ___________________________________________________
 
 
@@ -94,6 +94,8 @@ CONTENTS
   -autoskip         Skip drawing when behind schedule (default)
   -noautoskip       Never skip frames automatically
   -fps              Show FPS counter in top-right corner
+  -nodrc            Virtua Racing: DSP interpreter instead of the
+                    recompiler (slower; for comparisons)
 
   EXAMPLES
   --------
@@ -338,6 +340,12 @@ CONTENTS
     Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).
     Or try -frameskip=1 to skip every other frame.
     Check fps=1 is set to monitor actual frame rate.
+
+  VIRTUA RACING
+    The SVP chip in the cartridge is emulated by recompiling its DSP
+    program into 68k code, on Emu68 only.  The exit summary shows
+    "SVP recompiler: on" when it is used.  If the game misbehaves,
+    compare with -nodrc (the interpreter) and report the difference.
 
   AUDIO DISTORTION / TOO QUIET
     Adjust paulaboost or ahiboost in the config (0=1x up to 3=8x).

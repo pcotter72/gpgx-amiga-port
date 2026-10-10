@@ -10,8 +10,8 @@
  ****************************************************************************/
 
 /* Version info */
-#define GPGX_VERSION  "1.7"
-#define GPGX_DATE     "09.10.2026"
+#define GPGX_VERSION  "1.8"
+#define GPGX_DATE     "10.10.2026"
 #define GPGX_AUTHOR   "Pedro Cotter"
 
 /* Standard AmigaOS version string - readable by C:Version command */
@@ -2134,6 +2134,7 @@ int main(int argc, char *argv[])
         printf("  -autoskip     Skip drawing when behind schedule (default)\n");
         printf("  -noautoskip   Never skip frames automatically\n");
         printf("  -fps          Show FPS counter in top-right corner\n");
+        printf("  -nodrc        Virtua Racing (SVP): interpreter, not the recompiler\n");
 #ifdef USE_MINIGL
         printf("\nGL output (PiStorm3D / minigl.library 29, Pi 4/CM4 only):\n");
         printf("  -gl           Draw through the V3D GPU (falls back if unavailable)\n");

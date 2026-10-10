@@ -2,12 +2,12 @@ Short:    Sega Mega Drive/Genesis, SMS, GG emulator for PiStorm
 Author:   Pedro Cotter
 Uploader: Pedro Cotter
 Type:     misc/emu
-Version:  1.7
+Version:  1.8
 Requires: PiStorm/Emu68, AmigaOS 3.x or CaffeineOS, RTG (P96 or CGX)
 Architecture: m68k-amigaos
 
 
-GenesisPlusGX v1.7 for AmigaOS 3.x / CaffeineOS
+GenesisPlusGX v1.8 for AmigaOS 3.x / CaffeineOS
 ================================================
 
 A Sega Mega Drive / Genesis, Master System, Game Gear and SG-1000
@@ -75,6 +75,7 @@ Usage
     -autoskip       Skip drawing when behind schedule (default)
     -noautoskip     Never skip automatically
     -fps            FPS counter in the top-right corner
+    -nodrc          Virtua Racing: DSP interpreter, not recompiler
 
   GPU output (Pi 4 / CM4, minigl.library 29.1):
     -gl             Draw through the V3D GPU
@@ -193,6 +194,12 @@ Configuration (defaults)
 
 Changes
 -------
+
+  v1.8 (10.10.2026)
+  - Virtua Racing: the SVP DSP program is recompiled into 68k
+    code (Emu68 only). Race 57-60 fps on a CM4 (about 33
+    before); DSP time 13.5 -> 5.4 ms per frame.
+  - Faster DSP interpreter when the recompiler is off (-nodrc).
 
   v1.7 (09.10.2026)
   - Frames paced against an exact EClock schedule; audio buffers

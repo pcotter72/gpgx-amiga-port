@@ -5,6 +5,9 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 ## Features
 
 - Sega Genesis / Mega Drive emulation at full 60fps (NTSC) / 50fps (PAL)
+- Virtua Racing (SVP DSP) at or near full speed on PiStorm/Emu68: the DSP
+  program is recompiled to 68k code at run time (`-nodrc` uses the
+  interpreter instead)
 - Master System and Game Gear emulation
 - ZIP ROM loading (archives extracted in memory via miniz)
 - 32-bit BGRA CyberGraphX/P96 RTG video output (VideoCore native format)
@@ -189,6 +192,7 @@ Additional settings available in config file (and launcher GUI) only: `fmvol`, `
 |--------|-------------|
 | `-frameskip=N` | Skip N frames (1=50%, 2=33%, 3=25% render) |
 | `-fps` | Show FPS counter in top-right corner |
+| `-nodrc` | Virtua Racing (SVP): use the DSP interpreter instead of the recompiler |
 
 ### Audio Backend Guide
 
@@ -479,6 +483,29 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - [ ] Sega CD support
 
 ## Changelog
+
+### v1.8 (10.10.2026)
+
+**Virtua Racing:**
+- The SVP chip's SSP1601 DSP program is recompiled into 68k code at run
+  time (Emu68 only; elsewhere the interpreter below runs). Measured on a
+  CM4 in a race: DSP time 13.5 -> 5.4 ms per frame, frame emulation
+  22 -> 15 ms; the race now runs at 57-60 fps (about 33 before).
+- The code is laid out for the Emu68 JIT: blocks chain through a
+  generated dispatcher, flags are computed without branches, rare paths
+  sit after each block, and all memory-port (PM/PMC) accesses are
+  generated inline. IRAM overlays (reloaded ~1.6 times per frame) are
+  validated by content.
+- A faster DSP interpreter (state in registers) is used when the
+  recompiler is off (`-nodrc`, or not on Emu68).
+- Every step was checked against the original interpreter with a
+  verify build that compares the full DSP state block by block
+  (millions of blocks, 0 differences).
+
+**Other:**
+- The startup line names the screen pixel format (e.g. `RGB16PC`).
+- Test builds: `GPGX_PROFILE=1` (frame profile from Emu68's counters),
+  `SVP_VERIFY=1`; see CLAUDE.md.
 
 ### v1.7 (09.10.2026)
 
