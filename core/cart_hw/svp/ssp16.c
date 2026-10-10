@@ -348,6 +348,33 @@ static unsigned short *PC;
 static int g_cycles;
 
 #ifdef AMIGA
+/* Amiga port: counts IRAM (DSP code RAM) writes, so translated code made
+ * from IRAM can tell whether it may have changed (amiga/ssp16_drc.h) */
+unsigned int ssp_iram_gen;
+#endif
+#if defined(AMIGA) && defined(SVP_VERIFY)
+/* DRAM (kind 1) and IRAM (kind 2) writes, logged while a recompiled
+ * block and the reference run, so they can be compared and undone */
+#define SSP_VLOG_MAX 4096
+struct ssp_vlog_e { unsigned short kind, addr, old, val; };
+struct ssp_vlog_e ssp_vlog[SSP_VLOG_MAX];
+int ssp_vlog_n, ssp_vlog_on, ssp_vlog_overflow;
+static void ssp_vlog_add(int kind, int addr, unsigned short old, unsigned short val)
+{
+  if (!ssp_vlog_on) return;
+  if (ssp_vlog_n >= SSP_VLOG_MAX) { ssp_vlog_overflow = 1; return; }
+  ssp_vlog[ssp_vlog_n].kind = (unsigned short)kind;
+  ssp_vlog[ssp_vlog_n].addr = (unsigned short)addr;
+  ssp_vlog[ssp_vlog_n].old = old;
+  ssp_vlog[ssp_vlog_n].val = val;
+  ssp_vlog_n++;
+}
+#define SSP_VLOG(k, a, o, v) ssp_vlog_add(k, a, o, v)
+#else
+#define SSP_VLOG(k, a, o, v) ((void)0)
+#endif
+
+#ifdef AMIGA
 /* Amiga port: counters for the exit summary (amiga/main.c). Timing
  * comes from the GPGX_PROFILE build (amiga/prof.c). */
 unsigned long ssp_dbg_calls;        /* ssp1601_run() calls */
@@ -522,9 +549,13 @@ static u32 pm_io(int reg, int write, u32 d)
         elprintf(EL_SVP, "ssp PM%i DRAM w [%06x] %04x (inc %i, ovrw %i)",
           reg, CADDR, d, inc >> 16, (mode>>10)&1);
 #endif
+        {
+        unsigned short old_ = dram[addr]; (void)old_;
         if (mode & 0x0400) {
                overwite_write(dram[addr], d);
         } else dram[addr] = d;
+        SSP_VLOG(1, addr, old_, dram[addr]);
+        }
         ssp->pmac[1][reg] += inc;
       }
       else if ((mode & 0xfbff) == 0x4018) /* DRAM, cell inc */
@@ -533,9 +564,13 @@ static u32 pm_io(int reg, int write, u32 d)
         elprintf(EL_SVP, "ssp PM%i DRAM w [%06x] %04x (cell inc, ovrw %i) @ %04x",
           reg, CADDR, d, (mode>>10)&1, GET_PPC_OFFS());
 #endif
+        {
+        unsigned short old_ = dram[addr]; (void)old_;
         if (mode & 0x0400) {
                overwite_write(dram[addr], d);
         } else dram[addr] = d;
+        SSP_VLOG(1, addr, old_, dram[addr]);
+        }
         /* ssp->pmac_write[reg] += (addr&1) ? (31<<16) : (1<<16); */
         ssp->pmac[1][reg] += (addr&1) ? 31 : 1;
       }
@@ -560,6 +595,10 @@ static u32 pm_io(int reg, int write, u32 d)
             else ssp_iram_samecode++;
           }
         }
+#endif
+#ifdef AMIGA
+        ssp_iram_gen++;
+        SSP_VLOG(2, addr & 0x3ff, ((unsigned short *)svp->iram_rom)[addr&0x3ff], (unsigned short)d);
 #endif
         ((unsigned short *)svp->iram_rom)[addr&0x3ff] = d;
         ssp->pmac[1][reg] += inc;
@@ -1145,7 +1184,11 @@ static void ssp1601_run_c(int cycles);
 static void ssp1601_run_fast(int cycles);
 #ifdef SVP_VERIFY
 static void ssp1601_run_verify(int cycles);
+static void ssp1601_run_drc_verify(int cycles);
 #endif
+/* recompiler, amiga/ssp16_drc.h (Emu68 only) */
+static int drc_ready(void);
+static void ssp1601_run_drc(int cycles);
 #endif
 #endif
 
@@ -1184,9 +1227,11 @@ void ssp1601_run(int cycles)
 #if defined(USE_ASM_SVP)
   ssp1601_run_asm(cycles);
 #elif defined(AMIGA) && defined(SVP_VERIFY)
-  ssp1601_run_verify(cycles);
+  if (drc_ready()) ssp1601_run_drc_verify(cycles);
+  else ssp1601_run_verify(cycles);
 #elif defined(AMIGA) && !defined(SVP_REFERENCE)
-  ssp1601_run_fast(cycles);
+  if (drc_ready()) ssp1601_run_drc(cycles);
+  else ssp1601_run_fast(cycles);
 #else
   ssp1601_run_c(cycles);
 #endif
@@ -1453,7 +1498,9 @@ static void ssp1601_run_c(int cycles)
 }
 
 #ifdef AMIGA
+#include <stddef.h>
 #include "ssp16_fast.h"
+#include "ssp16_drc.h"
 #endif
 #endif /* !USE_ASM_SVP */
 

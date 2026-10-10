@@ -15,6 +15,9 @@
 
 extern void prof_read3(ULONG *out);     /* prof_asm.s: counter, m68k, ARM */
 extern ULONG prof_freq_read(void);
+extern void prof_jit3(ULONG *out);   /* JITSIZE, JITFREE, JITCMISS */
+
+static ULONG prof_jit_start[3];
 
 #define PROF_DEPTH 16
 
@@ -37,6 +40,7 @@ void prof_init(void)
 {
     int i, k;
     prof_freq = prof_freq_read();
+    prof_jit3(prof_jit_start);
     for (i = 0; i < PROF_N; i++)
     {
         for (k = 0; k < 3; k++)
@@ -136,6 +140,13 @@ void prof_report(void)
            prof_frames, (unsigned long)prof_freq,
            (unsigned long)(read[0] * us_per_tick * 1000.0 + 0.5),
            (unsigned long)(read[1] + 0.5), (unsigned long)(read[2] + 0.5));
+    {
+        ULONG j[3];
+        prof_jit3(j);
+        printf("Profile: Emu68 JIT cache %lu KB, %lu KB free; %lu translations per frame\n",
+               j[0] / 1024, j[1] / 1024,
+               (ULONG)((double)(ULONG)(j[2] - prof_jit_start[2]) / (double)prof_frames + 0.5));
+    }
     printf("Profile: section            us/frame  share  calls/fr  m68k ins/fr  ns/m68k ARM/m68k\n");
     for (i = 0; i < PROF_N; i++)
     {

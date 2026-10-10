@@ -208,7 +208,7 @@ SOURCES = $(CORE_SRC) $(M68K_SRC) $(Z80_SRC) $(SOUND_SRC) \
 OBJECTS = $(SOURCES:.c=.o)
 
 # All ASM modules enabled by default (all CPUs in this port are 68020+)
-OBJECTS += amiga/audio_asm.o amiga/video_asm.o amiga/vdp_asm.o
+OBJECTS += amiga/audio_asm.o amiga/video_asm.o amiga/vdp_asm.o amiga/svp_drc_asm.o
 CFLAGS  += -DUSE_ASM_AUDIO -DUSE_ASM_VIDEO -DUSE_ASM_VDP
 
 # blip_buf inner loop ASM: opt-in for diagnostic purposes.

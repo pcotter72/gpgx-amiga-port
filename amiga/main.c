@@ -968,7 +968,18 @@ static double eclock_ticks(const struct EClockVal *v)
 extern unsigned long ssp_dbg_calls, ssp_dbg_idle, ssp_dbg_cycles;
 #ifdef SVP_VERIFY
 extern unsigned long ssp_verify_runs, ssp_verify_bad;   /* amiga/ssp16_fast.h */
+extern unsigned long ssp_drc_vblocks, ssp_drc_vbad;     /* amiga/ssp16_drc.h */
 #endif
+/* SVP recompiler (amiga/ssp16_drc.h) */
+extern unsigned long ssp_drc_blocks, ssp_drc_resets, ssp_drc_fallbacks;
+extern unsigned long ssp_drc_runs, ssp_drc_waitstart;
+extern unsigned long ssp_drc_disp[7], ssp_drc_hcnt[32];
+extern unsigned long ssp_drc_tr_iram, ssp_drc_rs_code, ssp_drc_rs_meta, ssp_drc_rs_fail;
+extern double ssp_drc_tr_words, ssp_drc_tr_bytes;
+extern double ssp_drc_run_cycles;
+extern int ssp_drc_disable;
+extern const char *ssp_drc_why;
+extern void ssp1601_drc_shutdown(void);
 #ifdef SVP_PROFILE
 extern unsigned long ssp_prof_op[128];
 extern unsigned long ssp_prof_pc[0x10000];
@@ -2233,6 +2244,10 @@ int main(int argc, char *argv[])
             prof_flushtest = 1;   /* CacheClearU() once per frame */
         }
 #endif
+        else if (strcmp(argv[i], "-nodrc") == 0)
+        {
+            ssp_drc_disable = 1;  /* SVP: interpreter instead of the recompiler */
+        }
         else if (strcmp(argv[i], "-fps") == 0)
         {
             show_fps_counter = 1;
@@ -3106,9 +3121,52 @@ int main(int argc, char *argv[])
                         printf("SVP: %lu DSP cycles per frame (limit %d per line)\n",
                                (ULONG)((double)ssp_dbg_cycles / (double)ft_frames + 0.5),
                                (int)SVP_cycles);
+                    printf("SVP recompiler: %s; %lu blocks translated, %lu resets,"
+                           " %lu runs finished by the interpreter\n",
+                           ssp_drc_why, ssp_drc_blocks, ssp_drc_resets, ssp_drc_fallbacks);
+                    if (ssp_drc_blocks)
+                        printf("SVP recompiler: translations %lu%% IRAM, %lu words and %lu bytes"
+                               " each; resets: code full %lu, index full %lu, failed %lu\n",
+                               (ULONG)((double)ssp_drc_tr_iram * 100.0 / (double)ssp_drc_blocks + 0.5),
+                               (ULONG)(ssp_drc_tr_words / (double)ssp_drc_blocks + 0.5),
+                               (ULONG)(ssp_drc_tr_bytes / (double)ssp_drc_blocks + 0.5),
+                               ssp_drc_rs_code, ssp_drc_rs_meta, ssp_drc_rs_fail);
+                    if (ssp_drc_runs)
+                    {
+                        static const char *const rn[16] = { "-", "X", "Y", "A", "ST",
+                            "STACK", "PC", "P", "PM0", "PM1", "PM2", "XST", "PM4",
+                            "gr13", "PMC", "AL" };
+                        double fr = (double)ft_frames;
+                        int h;
+                        printf("SVP recompiler: per frame %lu blocks entered from C, %lu chained;"
+                               " back to C: cycles %lu, wait %lu, few cycles %lu,"
+                               " untranslated %lu, IRAM check %lu, segment %lu\n",
+                               (ULONG)(ssp_drc_runs / fr + 0.5), (ULONG)(ssp_drc_disp[0] / fr + 0.5),
+                               (ULONG)(ssp_drc_disp[1] / fr + 0.5), (ULONG)(ssp_drc_disp[2] / fr + 0.5),
+                               (ULONG)(ssp_drc_disp[3] / fr + 0.5), (ULONG)(ssp_drc_disp[4] / fr + 0.5),
+                               (ULONG)(ssp_drc_disp[5] / fr + 0.5), (ULONG)(ssp_drc_disp[6] / fr + 0.5));
+                        printf("SVP recompiler: handler calls per frame:");
+                        for (h = 0; h < 32; h++)
+                            if (ssp_drc_hcnt[h])
+                                printf(" %s %s %lu", h < 16 ? "read" : "write", rn[h & 15],
+                                       (ULONG)(ssp_drc_hcnt[h] / fr + 0.5));
+                        printf("\n");
+                    }
+                    if (ssp_drc_runs)
+                    {
+                        ULONG cpb10 = (ULONG)(ssp_drc_run_cycles * 10.0 / (double)ssp_drc_runs + 0.5);
+                        printf("SVP recompiler: %lu runs from C per frame, %lu.%lu DSP cycles each;"
+                               " %lu runs began in an idle wait\n",
+                               (ULONG)((double)ssp_drc_runs / (double)ft_frames + 0.5),
+                               cpb10 / 10, cpb10 % 10, ssp_drc_waitstart);
+                    }
 #ifdef SVP_VERIFY
-                    printf("SVP verify: %lu runs compared, %lu differed\n",
-                           ssp_verify_runs, ssp_verify_bad);
+                    if (ssp_drc_vblocks)
+                        printf("SVP DRC verify: %lu blocks compared, %lu differed\n",
+                               ssp_drc_vblocks, ssp_drc_vbad);
+                    else
+                        printf("SVP verify: %lu runs compared, %lu differed\n",
+                               ssp_verify_runs, ssp_verify_bad);
 #endif
 #ifdef SVP_PROFILE
                     {
@@ -3131,43 +3189,32 @@ int main(int argc, char *argv[])
     if (prof_flushes)
         printf("Profile: -flushtest: %lu CacheClearU() calls, %lu us each (call only)\n",
                prof_flushes, (ULONG)(prof_ticks_to_us(prof_flush_ticks) / (double)prof_flushes + 0.5));
-    if (svp)
-    {
-        extern unsigned long ssp_iram_writes, ssp_iram_loads, ssp_iram_distinct;
-        ULONG fr = prof_get_frames();
-        printf("SVP IRAM: %lu words written, %lu new contents run (%lu per 100 frames),"
-               " %lu distinct\n", ssp_iram_writes, ssp_iram_loads,
-               fr ? (ULONG)((double)ssp_iram_loads * 100.0 / (double)fr + 0.5) : 0,
-               ssp_iram_distinct);
-        {
-            extern unsigned long ssp_iram_codemods, ssp_iram_samecode, ssp_iram_modruns;
-            extern unsigned long fp_iram_ops, fp_rom_ops;
-            extern unsigned char ssp_iram_exec[0x400];
-            double all = (double)fp_iram_ops + (double)fp_rom_ops;
-            int w, used = 0;
-            for (w = 0; w < 0x400; w++) used += ssp_iram_exec[w];
-            printf("SVP IRAM: %lu.%lu%% of DSP instructions run from IRAM; %d of 1024 IRAM words ever executed\n",
-                   all > 0.0 ? (ULONG)((double)fp_iram_ops * 100.0 / all) : 0,
-                   all > 0.0 ? (ULONG)((double)fp_iram_ops * 1000.0 / all) % 10 : 0, used);
-            printf("SVP IRAM: writes that changed executed code %lu (%lu per 100 frames),"
-                   " same value %lu; DSP runs after a code change %lu (%lu per 100 frames)\n",
-                   ssp_iram_codemods,
-                   fr ? (ULONG)((double)ssp_iram_codemods * 100.0 / (double)fr + 0.5) : 0,
-                   ssp_iram_samecode, ssp_iram_modruns,
-                   fr ? (ULONG)((double)ssp_iram_modruns * 100.0 / (double)fr + 0.5) : 0);
-        }
-    }
     prof_report();
     if (svp)
     {
         extern void ssp_fast_prof_report(unsigned long frames);
         ssp_fast_prof_report(prof_get_frames());
+        {
+            extern unsigned long ssp_drc_pmstat[10];
+            double f = (double)prof_get_frames();
+            if (f > 0.0)
+                printf("SVP PM paths per frame: read ROM %lu DRAM %lu raw %lu C %lu;"
+                       " write DRAM %lu cell %lu raw %lu C %lu IRAM %lu ignored %lu\n",
+                       (ULONG)(ssp_drc_pmstat[0] / f + 0.5), (ULONG)(ssp_drc_pmstat[1] / f + 0.5),
+                       (ULONG)(ssp_drc_pmstat[2] / f + 0.5), (ULONG)(ssp_drc_pmstat[3] / f + 0.5),
+                       (ULONG)(ssp_drc_pmstat[4] / f + 0.5), (ULONG)(ssp_drc_pmstat[5] / f + 0.5),
+                       (ULONG)(ssp_drc_pmstat[6] / f + 0.5), (ULONG)(ssp_drc_pmstat[7] / f + 0.5),
+                       (ULONG)(ssp_drc_pmstat[8] / f + 0.5), (ULONG)(ssp_drc_pmstat[9] / f + 0.5));
+        }
     }
 #endif
     printf("\n");
 
     /* Save SRAM battery backup */
     sram_autosave();
+
+    /* SVP recompiler memory (allocated on first use) */
+    ssp1601_drc_shutdown();
 
     /* Free save state buffer */
     if (state_buf)

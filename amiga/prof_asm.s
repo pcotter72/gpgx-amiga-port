@@ -53,3 +53,26 @@ _prof_freq_read:
 _prof_frq_trap:
     .word   0x4e7a,0x00e0           /* movec CNTFRQ,d0 */
     rte
+
+/* void prof_jit3(ULONG out[3]) - out[0]=JITSIZE, [1]=JITFREE, [2]=JITCMISS
+ *   $0E7 JITSIZE  - total JIT cache size in bytes
+ *   $0E8 JITFREE  - free bytes in the JIT cache
+ *   $0EC JITCMISS - JIT cache misses (translations started), 32-bit counter */
+    .globl  _prof_jit3
+_prof_jit3:
+    movem.l a5-a6,-(sp)
+    move.l  12(sp),a1
+    lea     _prof_jit3_trap(pc),a5
+    movea.l (4).w,a6
+    jsr     -30(a6)                 /* Supervisor(a5) */
+    movem.l (sp)+,a5-a6
+    rts
+
+_prof_jit3_trap:
+    .word   0x4e7a,0x00e7           /* movec JITSIZE,d0 */
+    .word   0x4e7a,0x10e8           /* movec JITFREE,d1 */
+    move.l  d0,(a1)+
+    move.l  d1,(a1)+
+    .word   0x4e7a,0x00ec           /* movec JITCMISS,d0 */
+    move.l  d0,(a1)
+    rte
