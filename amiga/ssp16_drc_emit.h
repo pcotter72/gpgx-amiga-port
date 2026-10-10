@@ -53,6 +53,7 @@ struct drc_env
   int off_b_code, off_b_gen, off_b_nins;  /* struct drc_block fields */
   int min_cycles;        /* below this many cycles C finishes the run */
   int no_chain;          /* verify builds: every exit returns to C */
+  int count_chain;       /* profile builds: count chained runs in addr_runs[0] */
   /* inline PM handlers */
   int off_pmac;          /* ssp1601_t pmac[2][6] */
   drc_u32 addr_dram;     /* svp->dram */
@@ -88,7 +89,7 @@ struct drc_out
 #endif
 };
 
-#define DRC_MAX_INS 24          /* DSP instructions per block */
+#define DRC_MAX_INS 40          /* DSP instructions per block */
 #define DRC_SKIP_MAX 32         /* words: a forward conditional bra within this stays inside */
 
 /* ------------------------------------------------------------------ */
@@ -466,7 +467,7 @@ static void drc_here(struct drc_out *o, struct drc_fix f)
                               * c = reg, b = write, a = blind access, u = idle WAIT
                               * bit for a PM4 read that returns 0 here (or 0);
                               * back = continue after the guard, back2 = done */
-#define DRC_MAX_COLD 320   /* up to ~9 per instruction (PM to PM moves) x 24 + checks */
+#define DRC_MAX_COLD 512   /* up to ~9 per instruction (PM to PM moves) x 40 + checks */
 
 struct drc_cold
 {
@@ -1171,7 +1172,15 @@ static void drc_cold_emit(struct drc_tr *t)
         if (c->clear) i_sf_abs(o, e->addr_flag);
         i_move_w_imm_dn(o, (int)c->u, 0);
         g_sub_cyc(t, c->a);
-        i_goto_abs(o, e->addr_dispatch);
+        if (c->clear)
+        {
+          /* the DSP may wait now or IRAM changed: back to C, which
+           * checks both (the dispatcher no longer tests the wait) */
+          i_move_w_dn_abs(o, 0, e->addr_next_pc);
+          i_rts(o);
+        }
+        else
+          i_goto_abs(o, e->addr_dispatch);
         break;
       case COLD_MOVEQ_BACK:
         i_moveq(o, c->a, c->b);
@@ -1638,15 +1647,13 @@ static void drc_emit_stubs(const struct drc_env *e, struct drc_out *o,
  * the C dispatcher (drc_enter's caller) with the PC in addr_next_pc. */
 static void drc_emit_dispatch(const struct drc_env *e, struct drc_out *o)
 {
-  struct drc_fix f_cyc, f_wait, f_none, f_rom, f_gen, f_short;
+  struct drc_fix f_none, f_rom, f_gen, f_short;
   i_andi_l(o, 0xffff, 0);
   if (!e->no_chain)
   {
-    i_tst_l(o, R_CYC);
-    f_cyc = i_bcc_w(o, 15);                 /* ble: cycles used up */
-    i_move_w_d16_dn(o, e->off_emust + 2, R_S, 1);
-    i_andi_w(o, 0xf000, 1);
-    f_wait = i_bcc_w(o, CC_NE);             /* the DSP waits */
+    /* No "cycles used up" test: min_cycles >= 1 covers it. No "DSP
+     * waits" test: a wait only starts in an instruction that also
+     * raises the exit flag, and those exits return to C directly. */
     i_cmpi_l(o, (drc_u32)e->min_cycles, R_CYC);
     f_short = i_bcc_w(o, 13);               /* blt: C finishes the run */
     i_move_l_dd(o, 0, 1);
@@ -1667,20 +1674,21 @@ static void drc_emit_dispatch(const struct drc_env *e, struct drc_out *o)
     i_cmp_l_dd(o, 1, R_CYC);
     {
       struct drc_fix f_few = i_bcc_w(o, 13);  /* blt: first segment does not fit */
-      struct drc_fix *why[6], to_out[6];
+      struct drc_fix *why[4], to_out[4];
+      static const int slot[4] = { 3, 4, 5, 6 };   /* addr_runs[] index */
       int r;
-      i_addq_l_abs(o, 1, e->addr_runs);
+      if (e->count_chain)
+        i_addq_l_abs(o, 1, e->addr_runs);
       i_movea_l_d16a0_a0(o, e->off_b_code);
       i_jmp_a0(o);
-      why[0] = &f_cyc; why[1] = &f_wait; why[2] = &f_short;
-      why[3] = &f_none; why[4] = &f_gen; why[5] = &f_few;
-      for (r = 0; r < 6; r++)       /* count why the chain stopped */
+      why[0] = &f_short; why[1] = &f_none; why[2] = &f_gen; why[3] = &f_few;
+      for (r = 0; r < 4; r++)       /* count why the chain stopped */
       {
         drc_here(o, *why[r]);
-        i_addq_l_abs(o, 1, e->addr_runs + 4 * (r + 1));
+        i_addq_l_abs(o, 1, e->addr_runs + 4 * slot[r]);
         to_out[r] = i_bcc_w(o, CC_T);
       }
-      for (r = 0; r < 6; r++)
+      for (r = 0; r < 4; r++)
         drc_here(o, to_out[r]);
     }
   }
@@ -1706,7 +1714,7 @@ static void drc_emit_dispatch(const struct drc_env *e, struct drc_out *o)
  * cycles for), 0 on buffer overflow; *nwords = program words used. */
 static int drc_translate(const struct drc_env *e, struct drc_out *o,
                          const drc_u16 *code, drc_u32 start, drc_u32 limit,
-                         int *nwords)
+                         int *nwords, int max_ins)
 {
   struct drc_tr tr, *t = &tr;
   drc_u32 addr[DRC_MAX_INS + 1];
@@ -1749,7 +1757,7 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
             tgt > at && tgt - at <= DRC_SKIP_MAX))
         break;
     }
-    if (n >= DRC_MAX_INS || a >= limit || a > 0xffff) break;
+    if (n >= max_ins || a >= limit || a > 0xffff) break;
   }
   addr[n] = a;
 

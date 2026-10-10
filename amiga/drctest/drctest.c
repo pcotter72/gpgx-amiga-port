@@ -51,7 +51,7 @@ int main(int argc, char **argv)
   e.addr_hread = 0x08300000u; e.addr_hwrite = 0x08300010u; e.addr_ptr2 = 0x08300020u;
   e.addr_dispatch = 0x08400000u; e.addr_map = 0x08500000u; e.addr_runs = 0x08200010u;
   e.off_b_code = 4; e.off_b_gen = 8; e.off_b_nins = 12;
-  e.min_cycles = 32; e.no_chain = 0;
+  e.min_cycles = 32; e.no_chain = 0; e.count_chain = 1;
   e.off_pmac = 1108; e.addr_dram = 0x08600000u; e.addr_rom = 0x08700000u;
   e.addr_inctab = 0x08800000u; e.addr_vlog = 0x08300030u;
   e.addr_slow_read = 0x08400100u; e.addr_slow_write = 0x08400180u;
@@ -91,7 +91,7 @@ int main(int argc, char **argv)
     code[0x500] = (drc_u16)op;
     code[0x501] = (drc_u16)(op ^ 0x5a5a);     /* immediate, varies */
     fprintf(ftxt, "| op %04lx\n", op);
-    if (!drc_translate(&e, &o, code, 0x500, 0x10000, &nwords) && o.overflow)
+    if (!drc_translate(&e, &o, code, 0x500, 0x10000, &nwords, DRC_MAX_INS) && o.overflow)
     {
       fprintf(stderr, "buffer overflow at op %04lx\n", op);
       return 1;
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
           code[at[m] + 1] = (drc_u16)RND();
       }
       fprintf(ftxt, "| op prog%d\n", prog);
-      if (!drc_translate(&e, &o, code, 0x700, 0x10000, &nwords) && o.overflow)
+      if (!drc_translate(&e, &o, code, 0x700, 0x10000, &nwords, DRC_MAX_INS) && o.overflow)
       {
         fprintf(stderr, "buffer overflow in program %d\n", prog);
         return 1;

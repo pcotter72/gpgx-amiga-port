@@ -54,7 +54,7 @@ struct drc_block
 #define DRC_CODE_MIN   (4 * 1024 * 1024)
 static u32 drc_code_size;
 #define DRC_META_SIZE  (1024 * 1024)
-#define DRC_BLOCK_MAX  16384    /* bytes one block may need at most */
+#define DRC_BLOCK_MAX  32768    /* bytes one block may need at most */
 #define DRC_DISP_MAX   1024     /* dispatcher and slow paths at the buffer start */
 /* With fewer cycles left than the longest block, C finishes the run with
  * the interpreter: a block may not run past the cycle limit, and the
@@ -264,6 +264,11 @@ static int drc_init(void)
 #else
   drc_e.no_chain = 0;
 #endif
+#ifdef GPGX_PROFILE
+  drc_e.count_chain = 1;
+#else
+  drc_e.count_chain = 0;
+#endif
   {
     struct drc_out o;
     int pr, pw;
@@ -297,10 +302,10 @@ static struct drc_block *drc_new(u32 pcw)
   const unsigned short *base = (const unsigned short *)svp->iram_rom;
   struct drc_out o;
   struct drc_block *b;
-  int nins, nwords, tries;
+  int nins = 0, nwords, max_ins = DRC_MAX_INS;
   u32 need;
 
-  for (tries = 0; tries < 2; tries++)
+  for (;;)
   {
     if (drc_code_pos + DRC_BLOCK_MAX > drc_code_size)
     {
@@ -328,11 +333,14 @@ static struct drc_block *drc_new(u32 pcw)
     o.pos = 0;
     o.cap = DRC_BLOCK_MAX;
     o.overflow = 0;
-    nins = drc_translate(&drc_e, &o, base, pcw, pcw < 0x400 ? 0x400 : 0x10000, &nwords);
+    nins = drc_translate(&drc_e, &o, base, pcw, pcw < 0x400 ? 0x400 : 0x10000, &nwords, max_ins);
     if (nins)
       break;
+    /* did not fit in DRC_BLOCK_MAX bytes: try a shorter block */
     ssp_drc_rs_fail++;
-    drc_reset();
+    if (max_ins == 1)
+      break;
+    max_ins /= 2;
   }
   if (!nins)
     return NULL;

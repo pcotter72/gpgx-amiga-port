@@ -3138,11 +3138,10 @@ int main(int argc, char *argv[])
                             "gr13", "PMC", "AL" };
                         double fr = (double)ft_frames;
                         int h;
-                        printf("SVP recompiler: per frame %lu blocks entered from C, %lu chained;"
-                               " back to C: cycles %lu, wait %lu, few cycles %lu,"
+                        printf("SVP recompiler: per frame %lu blocks entered from C, %lu chained"
+                               " (profile builds only); back to C: few cycles %lu,"
                                " untranslated %lu, IRAM check %lu, segment %lu\n",
                                (ULONG)(ssp_drc_runs / fr + 0.5), (ULONG)(ssp_drc_disp[0] / fr + 0.5),
-                               (ULONG)(ssp_drc_disp[1] / fr + 0.5), (ULONG)(ssp_drc_disp[2] / fr + 0.5),
                                (ULONG)(ssp_drc_disp[3] / fr + 0.5), (ULONG)(ssp_drc_disp[4] / fr + 0.5),
                                (ULONG)(ssp_drc_disp[5] / fr + 0.5), (ULONG)(ssp_drc_disp[6] / fr + 0.5));
                         printf("SVP recompiler: handler calls per frame:");
