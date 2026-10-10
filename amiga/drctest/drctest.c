@@ -56,7 +56,7 @@ int main(int argc, char **argv)
   e.addr_inctab = 0x08800000u; e.addr_vlog = 0x08300030u;
   e.addr_slow_read = 0x08400100u; e.addr_slow_write = 0x08400180u;
   e.addr_flag = 0x08200020u; e.addr_masktab = 0x08900000u; e.addr_pmstat = 0x08200040u;
-  e.addr_vlog_iram = 0x08300040u;
+  e.addr_vlog_iram = 0x08300040u; e.addr_exitstat = 0x08200080u;
 
   o.cap = 64 * 1024 * 1024;
   o.buf = (unsigned char *)malloc(o.cap);

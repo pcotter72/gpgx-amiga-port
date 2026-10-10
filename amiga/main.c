@@ -3195,7 +3195,7 @@ int main(int argc, char *argv[])
         extern void ssp_fast_prof_report(unsigned long frames);
         ssp_fast_prof_report(prof_get_frames());
         {
-            extern unsigned long ssp_drc_pmstat[10];
+            extern unsigned long ssp_drc_pmstat[10], ssp_drc_exitstat[10];
             double f = (double)prof_get_frames();
             if (f > 0.0)
                 printf("SVP PM paths per frame: read ROM %lu DRAM %lu raw %lu C %lu;"
@@ -3205,6 +3205,15 @@ int main(int argc, char *argv[])
                        (ULONG)(ssp_drc_pmstat[4] / f + 0.5), (ULONG)(ssp_drc_pmstat[5] / f + 0.5),
                        (ULONG)(ssp_drc_pmstat[6] / f + 0.5), (ULONG)(ssp_drc_pmstat[7] / f + 0.5),
                        (ULONG)(ssp_drc_pmstat[8] / f + 0.5), (ULONG)(ssp_drc_pmstat[9] / f + 0.5));
+            if (f > 0.0)
+                printf("SVP block exits per frame: end %lu, bra forward %lu, bra back %lu,"
+                       " call %lu, not taken %lu, PC write %lu, few cycles %lu, flag %lu;"
+                       " loops inside blocks %lu\n",
+                       (ULONG)(ssp_drc_exitstat[0] / f + 0.5), (ULONG)(ssp_drc_exitstat[1] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[2] / f + 0.5), (ULONG)(ssp_drc_exitstat[3] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[5] / f + 0.5), (ULONG)(ssp_drc_exitstat[6] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[7] / f + 0.5), (ULONG)(ssp_drc_exitstat[8] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[4] / f + 0.5));
         }
     }
 #endif

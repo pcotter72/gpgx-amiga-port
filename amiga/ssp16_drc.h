@@ -84,6 +84,7 @@ unsigned long ssp_drc_runs;                /* blocks entered from C */
 unsigned long ssp_drc_disp[7];             /* dispatcher: chained, and why it returned */
 unsigned long ssp_drc_hcnt[32];            /* handler calls: [r] reads, [16 + r] writes */
 unsigned long ssp_drc_pmstat[10];          /* profile builds: PM paths taken (drc_env) */
+unsigned long ssp_drc_exitstat[10];        /* profile builds: block exits by kind */
 double ssp_drc_run_cycles;                 /* DSP cycles they used */
 unsigned long ssp_drc_waitstart;           /* runs that began in an idle wait */
 /* translation statistics */
@@ -224,8 +225,10 @@ static int drc_init(void)
   drc_e.addr_masktab = (u32)drc_masktab;
 #ifdef GPGX_PROFILE
   drc_e.addr_pmstat = (u32)ssp_drc_pmstat;
+  drc_e.addr_exitstat = (u32)ssp_drc_exitstat;
 #else
   drc_e.addr_pmstat = 0;
+  drc_e.addr_exitstat = 0;
 #endif
   {
     /* overwite_write() in ssp16.c: a nibble of d replaces the old one

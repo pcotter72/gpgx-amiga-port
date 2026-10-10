@@ -68,6 +68,9 @@ struct drc_env
                           * write cell, write raw, write C, write IRAM, write
                           * ignored */
   drc_u32 addr_vlog_iram; /* verify builds: void (u32 off, u32 old, u32 val), else 0 */
+  drc_u32 addr_exitstat; /* profile builds: unsigned long[10] block exit counts, else 0:
+                          * end, bra fwd, bra back, call, loop inside, not taken,
+                          * PC write, too few cycles, flag exit, - */
 };
 
 struct drc_out
@@ -86,6 +89,7 @@ struct drc_out
 };
 
 #define DRC_MAX_INS 24          /* DSP instructions per block */
+#define DRC_SKIP_MAX 32         /* words: a forward conditional bra within this stays inside */
 
 /* ------------------------------------------------------------------ */
 /* raw emission */
@@ -501,6 +505,13 @@ static void g_sub_cyc(struct drc_tr *t, int n)
   else if (n > 8) i_subi_l(t->o, (drc_u32)n, R_CYC);
 }
 
+/* profile builds: count a block exit of this kind */
+static void g_stat(struct drc_tr *t, int kind)
+{
+  if (t->e->addr_exitstat)
+    i_addq_l_abs(t->o, 1, t->e->addr_exitstat + 4 * kind);
+}
+
 /* leave the block: continue at DSP word address next, n cycles used */
 static void g_exit(struct drc_tr *t, drc_u32 next, int n)
 {
@@ -677,6 +688,7 @@ static void g_reg_write(struct drc_tr *t, int r)
     case SSPR_STACK:
       g_push_stack(t); break;
     case SSPR_PC:   /* write_PC: SET_PC(d); g_cycles-- ; ends the block */
+      g_stat(t, 6);
       g_sub_cyc(t, t->k + 2);   /* next PC is in d0 already */
       i_goto_abs(t->o, t->e->addr_dispatch);
       t->ends = 1;
@@ -1155,6 +1167,7 @@ static void drc_cold_emit(struct drc_tr *t)
     switch (c->kind)
     {
       case COLD_EXIT:
+        g_stat(t, c->clear ? 8 : 7);
         if (c->clear) i_sf_abs(o, e->addr_flag);
         i_move_w_imm_dn(o, (int)c->u, 0);
         g_sub_cyc(t, c->a);
@@ -1722,8 +1735,20 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
      * again (measured: 64-instruction regions 450,000 translations,
      * blocks continuing past never-taken branches 268,000, blocks
      * ending at every branch 3,000). Branches back into the block
-     * still stay inside the generated code. */
-    if (drc_is_branch(op)) break;
+     * still stay inside the generated code.
+     * Exception: a conditional bra jumping at most DRC_SKIP_MAX words
+     * forward (an if-then skip) - the skipped words and the target are
+     * code of the same routine, and both outcomes stay inside the block
+     * (measured: not-taken and forward-taken exits were over half of all
+     * block exits). Unconditional jumps, calls and returns still end it:
+     * what follows them may be data or another routine. */
+    if (drc_is_branch(op))
+    {
+      drc_u32 at = addr[n - 1], tgt = code[at + 1];
+      if (!((op >> 9) == 0x26 && drc_branch_cond(op) == 2 &&
+            tgt > at && tgt - at <= DRC_SKIP_MAX))
+        break;
+    }
     if (n >= DRC_MAX_INS || a >= limit || a > 0xffff) break;
   }
   addr[n] = a;
@@ -1790,12 +1815,16 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
       }
       if (tj >= 0)
       {
+        g_stat(t, 4);
         g_sub_cyc(t, k + 2);    /* write_PC takes one more cycle */
         fix[nfix] = i_bcc_lab(o, CC_T, lab0 + tj);
         fix_to[nfix++] = tj;
       }
       else
+      {
+        g_stat(t, (op >> 9) == 0x24 ? 3 : target < pcw ? 2 : 1);
         g_exit(t, target, k + 2);
+      }
       if (c == 1)
       {
         done = 1;               /* unconditional: the region ends here */
@@ -1805,6 +1834,7 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
       drc_here(o, skip);
       if (i == n - 1)
       {
+        g_stat(t, 5);
         g_exit(t, next, k + 1);
         done = 1;
         break;
@@ -1827,7 +1857,10 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
     k++;
   }
   if (!done)
+  {
+    g_stat(t, 0);
     g_exit(t, a, k);
+  }
   drc_cold_emit(t);
 
   for (i = 0; i < nfix; i++)
