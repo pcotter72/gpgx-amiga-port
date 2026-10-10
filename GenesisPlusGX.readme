@@ -56,6 +56,7 @@ Usage
     -scanlines      Scanlines, medium (2x mode)
     -scanlines=N    Scanline level 1-3 (1=subtle 2=medium 3=strong)
     -vsync          Wait for vertical blank (costs speed)
+    -screendepth=N  32 (default) or 16 (Zorro RTG cards)
 
   Audio:
     -14bit          14-bit Paula stereo (4 channels)
@@ -146,8 +147,9 @@ Audio
 Video
 -----
 
-  Opens an RTG screen, 32-bit by default. screendepth=16 halves the
-  blit bandwidth (for Zorro RTG cards). Scanline levels 1-3.
+  Opens an RTG screen, 32-bit by default. screendepth=16 (or
+  -screendepth=16) halves the blit bandwidth (for Zorro RTG
+  cards). Scanline levels 1-3.
 
   GPU output (glout=1 or -gl, Pi 4 / CM4 only) draws the picture
   through the V3D GPU with minigl.library 29.1: any screen size,

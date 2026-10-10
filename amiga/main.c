@@ -2064,6 +2064,7 @@ int main(int argc, char *argv[])
         printf("  -scanlines    Enable scanlines (medium, 2x mode)\n");
         printf("  -scanlines=N  Scanline level 1-3 (1=subtle, 2=medium, 3=strong)\n");
         printf("  -vsync        Enable VSync (reduces tearing, may drop to 30fps)\n");
+        printf("  -screendepth=N  RTG screen depth: 32 (default) or 16 (Zorro RTG cards)\n");
         printf("\nAudio options:\n");
         printf("  -14bit        Use 14-bit Paula stereo (higher quality, 4 channels)\n");
         printf("  -paulafreq=N  Paula sample rate in Hz (default 41243; 0 = 27710)\n");
@@ -2113,6 +2114,14 @@ int main(int argc, char *argv[])
         {
             use_vsync = 1;
             use_autoskip = 0;  /* VBL is frame clock; autoskip would falsely skip half frames */
+        }
+        else if (strncmp(argv[i], "-screendepth=", 13) == 0)
+        {
+            int depth = atoi(argv[i] + 13);
+            if (depth == 16 || depth == 32)
+                cfg.screendepth = depth;
+            else
+                printf("Ignoring %s (use -screendepth=16 or -screendepth=32)\n", argv[i]);
         }
         else if (strcmp(argv[i], "-ahi") == 0)
         {

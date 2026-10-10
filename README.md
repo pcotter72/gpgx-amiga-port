@@ -141,6 +141,7 @@ GenesisPlusGX rom.bin -paulafreq=22050 -fps
 | `-scanlines` | Enable 2x scanlines (medium intensity) |
 | `-scanlines=N` | Scanline level 1-3 (1=subtle, 2=medium, 3=strong) |
 | `-vsync` | Enable VSync via WaitTOF (reduces tearing, may cap at 30fps if too slow) |
+| `-screendepth=N` | RTG screen depth: 32 (default) or 16 (half the blit bandwidth, for Zorro RTG cards) |
 
 #### GPU Output (PiStorm3D, optional)
 
@@ -181,7 +182,7 @@ The exit summary prints the measured `GL: upload` / `draw+present` times.
 | `-paulafilter` | Force the Amiga audio (LED) filter on (~7 kHz low-pass) |
 | `-nosound` | Disable audio entirely (maximum speed) |
 
-Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `hqfm`, `hqpsg`, `screendepth`, `glout`, `gleffect`, `glsize` (see Configuration section).
+Additional settings available in config file (and launcher GUI) only: `fmvol`, `psgvol`, `paulaboost`, `paulastereo`, `ahiboost`, `hqfm`, `hqpsg`, `glout`, `gleffect`, `glsize` (see Configuration section).
 
 #### Performance Options
 | Option | Description |
@@ -508,6 +509,8 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - Obsolete buffer-margin sliders removed
 
 **Build / docs:**
+- `-screendepth=16` / `-screendepth=32` command-line switch, so the
+  16-bit screen can be tried from the Shell (where the exit summary shows)
 - `build.bat` judges success by the output file (the toolchain make
   exits 0 on failure), cleans automatically when options change, and
   builds GPU output in when the PiStorm3D SDK is present

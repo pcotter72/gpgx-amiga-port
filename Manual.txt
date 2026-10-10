@@ -56,6 +56,7 @@ CONTENTS
   -scanlines        2x scanlines (medium intensity)
   -scanlines=N      Scanline level: 1=subtle  2=medium  3=strong
   -vsync            WaitTOF vertical sync (may drop to 30fps if too slow)
+  -screendepth=N    RTG screen depth: 32 (default) or 16 (Zorro RTG cards)
   -gl               GPU output through PiStorm3D (see below)
   -nogl             Normal display even if glout=1 in the config
   -gleffect=N       GPU effect: 0=sharp 1=smooth 2=scanlines 3=composite
