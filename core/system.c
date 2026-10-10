@@ -45,6 +45,19 @@
 #endif
 #include "eq.h"
 
+#ifdef GPGX_PROFILE
+/* Amiga port, test builds only: time each part of the frame
+ * (amiga/prof.h). Same-name function-like macros wrap every call
+ * below without touching the call sites. */
+#include "prof.h"
+#define m68k_run(c)        PROF_CALL(PROF_68K, m68k_run(c))
+#define z80_run(c)         PROF_CALL(PROF_Z80, z80_run(c))
+#define ssp1601_run(c)     PROF_CALL(PROF_SVP, ssp1601_run(c))
+#define render_line(l)     PROF_CALL(PROF_VDP, render_line(l))
+#define blank_line(l,o,w)  PROF_CALL(PROF_VDP, blank_line(l,o,w))
+#define vdp_dma_update(c)  PROF_CALL(PROF_DMA, vdp_dma_update(c))
+#endif
+
 /* Global variables */
 t_bitmap bitmap;
 t_snd snd;

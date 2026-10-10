@@ -4,6 +4,7 @@
 GenesisPlusGX
 GenesisPlusGX-Launcher
 GenesisPlusGX-Config
+GenesisPlusGX_*
 *.stripped
 .buildstamp
 

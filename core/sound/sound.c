@@ -99,6 +99,12 @@ INLINE void fm_update(int cycles)
   }
 }
 
+#ifdef GPGX_PROFILE
+/* Amiga port, test builds only: time FM synthesis (amiga/prof.h) */
+#include "prof.h"
+#define fm_update(c) PROF_CALL(PROF_FM, fm_update(c))
+#endif
+
 static void YM2612_Reset(unsigned int cycles)
 {
   /* synchronize FM chip with CPU */

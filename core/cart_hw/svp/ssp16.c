@@ -347,6 +347,18 @@ static ssp1601_t *ssp = NULL;
 static unsigned short *PC;
 static int g_cycles;
 
+#ifdef AMIGA
+/* Amiga port: counters for the exit summary (amiga/main.c). Timing
+ * comes from the GPGX_PROFILE build (amiga/prof.c). */
+unsigned long ssp_dbg_calls;        /* ssp1601_run() calls */
+unsigned long ssp_dbg_idle;         /* calls that ended in an idle wait */
+unsigned long ssp_dbg_cycles;       /* cycles used (C interpreter only) */
+#ifdef SVP_PROFILE
+unsigned long ssp_prof_op[128];     /* executions per op >> 9 */
+unsigned long ssp_prof_pc[0x10000]; /* executions per program word address */
+#endif
+#endif
+
 #ifdef USE_DEBUGGER
 static int running = 0;
 static int last_iram = 0;
@@ -534,6 +546,20 @@ static u32 pm_io(int reg, int write, u32 d)
         if ((addr&0xfc00) != 0x8000)
           elprintf(EL_SVP|EL_ANOMALY, "ssp FIXME: invalid IRAM addr: %04x", addr<<1);
         elprintf(EL_SVP, "ssp IRAM w [%06x] %04x (inc %i)", (addr<<1)&0x7ff, d, inc >> 16);
+#endif
+#if defined(AMIGA) && defined(GPGX_PROFILE)
+        { /* executed IRAM word changed = code change, not data */
+          extern unsigned char ssp_iram_exec[0x400];
+          extern unsigned long ssp_iram_writes, ssp_iram_codemods, ssp_iram_samecode;
+          extern int ssp_iram_dirty, ssp_iram_modflag;
+          int ix = addr & 0x3ff;
+          ssp_iram_writes++; ssp_iram_dirty = 1;
+          if (ssp_iram_exec[ix]) {
+            if (((unsigned short *)svp->iram_rom)[ix] != (unsigned short)d)
+            { ssp_iram_codemods++; ssp_iram_modflag = 1; }
+            else ssp_iram_samecode++;
+          }
+        }
 #endif
         ((unsigned short *)svp->iram_rom)[addr&0x3ff] = d;
         ssp->pmac[1][reg] += inc;
@@ -1110,13 +1136,72 @@ static void debug(unsigned int pc, unsigned int op)
 #ifdef USE_ASM_SVP
 /* Assembly version in svp_asm.s */
 extern void ssp1601_run_asm(int cycles);
+#else
+static void ssp1601_run_c(int cycles);
+#if defined(AMIGA)
+/* Amiga port: faster interpreter in amiga/ssp16_fast.h (included at the
+ * end of this file). SVP_REFERENCE builds use the original one only,
+ * SVP_VERIFY builds run both and compare. */
+static void ssp1601_run_fast(int cycles);
+#ifdef SVP_VERIFY
+static void ssp1601_run_verify(int cycles);
+#endif
+#endif
+#endif
+
+#if defined(AMIGA) && defined(GPGX_PROFILE)
+/* Recompiler feasibility: how often IRAM (DSP code RAM) is rewritten and
+ * how many different contents it takes. Hashed when the DSP next runs. */
+unsigned long ssp_iram_writes, ssp_iram_loads, ssp_iram_distinct;
+int ssp_iram_dirty;
+unsigned char ssp_iram_exec[0x400];        /* IRAM words executed as code */
+unsigned long ssp_iram_codemods;           /* writes that changed such a word */
+unsigned long ssp_iram_samecode;           /* writes of the same value to one */
+unsigned long ssp_iram_modruns;            /* runs started after a code change */
+int ssp_iram_modflag;
+static unsigned long iram_seen[256];
+static void ssp_iram_check(void)
+{
+  const unsigned char *p = svp->iram_rom;
+  unsigned long h = 2166136261UL;
+  int i;
+  ssp_iram_dirty = 0;
+  for (i = 0; i < 0x800; i++) h = (h ^ p[i]) * 16777619UL;
+  ssp_iram_loads++;
+  for (i = 0; i < (int)ssp_iram_distinct && i < 256; i++)
+    if (iram_seen[i] == h) return;
+  if (ssp_iram_distinct < 256) iram_seen[ssp_iram_distinct] = h;
+  ssp_iram_distinct++;
+}
+#endif
 
 void ssp1601_run(int cycles)
 {
+#if defined(AMIGA) && defined(GPGX_PROFILE)
+  if (ssp_iram_dirty) ssp_iram_check();
+  if (ssp_iram_modflag) { ssp_iram_modruns++; ssp_iram_modflag = 0; }
+#endif
+#if defined(USE_ASM_SVP)
   ssp1601_run_asm(cycles);
-}
+#elif defined(AMIGA) && defined(SVP_VERIFY)
+  ssp1601_run_verify(cycles);
+#elif defined(AMIGA) && !defined(SVP_REFERENCE)
+  ssp1601_run_fast(cycles);
 #else
-void ssp1601_run(int cycles)
+  ssp1601_run_c(cycles);
+#endif
+#ifdef AMIGA
+  ssp_dbg_calls++;
+  if (ssp->emu_status & SSP_WAIT_MASK) ssp_dbg_idle++;
+#ifndef USE_ASM_SVP
+  /* g_cycles counts down; it stops above 0 on an idle-wait exit */
+  ssp_dbg_cycles += (unsigned long)(cycles - g_cycles);
+#endif
+#endif
+}
+
+#ifndef USE_ASM_SVP
+static void ssp1601_run_c(int cycles)
 {
   SET_PC(rPC);
   g_cycles = cycles;
@@ -1126,7 +1211,13 @@ void ssp1601_run(int cycles)
     int op;
     u32 tmpv;
 
+#if defined(AMIGA) && defined(SVP_PROFILE)
+    ssp_prof_pc[(PC - (unsigned short *)svp->iram_rom) & 0xffff]++;
+#endif
     op = *PC++;
+#if defined(AMIGA) && defined(SVP_PROFILE)
+    ssp_prof_op[op >> 9]++;
+#endif
 #ifdef USE_DEBUGGER
     debug(GET_PC()-1, op);
 #endif
@@ -1360,5 +1451,9 @@ void ssp1601_run(int cycles)
     elprintf(EL_ANOMALY|EL_SVP, "ssp FIXME: REG 0 corruption! %08x", ssp->gr[SSP_GR0].v);
 #endif
 }
+
+#ifdef AMIGA
+#include "ssp16_fast.h"
+#endif
 #endif /* !USE_ASM_SVP */
 

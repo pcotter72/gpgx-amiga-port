@@ -45,6 +45,13 @@ static const char amiga_version[] = "$VER: GenesisPlusGX " GPGX_VERSION " (" GPG
 #endif
 #include "audio_paula.h"
 #include "audio_paula14.h"
+#include "prof.h"
+#ifdef GPGX_PROFILE
+extern void prof_read3(ULONG *out);
+static int prof_flushtest = 0;
+static ULONG prof_flushes = 0;
+static double prof_flush_ticks = 0.0;   /* Emu68 counter ticks */
+#endif
 #include "audio_ahi.h"
 #include "input_amiga.h"
 #include "crc32.h"
@@ -956,6 +963,41 @@ static double eclock_ticks(const struct EClockVal *v)
 {
     return (double)v->ev_hi * 4294967296.0 + (double)v->ev_lo;
 }
+
+/* SVP (Virtua Racing) counters, defined in ssp16.c */
+extern unsigned long ssp_dbg_calls, ssp_dbg_idle, ssp_dbg_cycles;
+#ifdef SVP_VERIFY
+extern unsigned long ssp_verify_runs, ssp_verify_bad;   /* amiga/ssp16_fast.h */
+#endif
+#ifdef SVP_PROFILE
+extern unsigned long ssp_prof_op[128];
+extern unsigned long ssp_prof_pc[0x10000];
+
+/* Print the n largest entries of a counter array, largest first.
+ * Destroys the array (each printed entry is zeroed). */
+static void print_top(const char *title, unsigned long *a, int size, int n,
+                      double total)
+{
+    int k, i, best;
+    printf("%s\n", title);
+    for (k = 0; k < n; k++)
+    {
+        best = -1;
+        for (i = 0; i < size; i++)
+            if (a[i] && (best < 0 || a[i] > a[best]))
+                best = i;
+        if (best < 0)
+            break;
+        {
+            ULONG pct10 = total > 0.0
+                ? (ULONG)((double)a[best] * 1000.0 / total + 0.5) : 0;
+            printf("  %04x  %10lu  %3lu.%lu%%\n", (unsigned)best, a[best],
+                   pct10 / 10, pct10 % 10);
+        }
+        a[best] = 0;
+    }
+}
+#endif
 
 /****************************************************************************
  * Frame limiter: wait until an absolute EClock deadline.
@@ -2185,6 +2227,12 @@ int main(int argc, char *argv[])
         {
             use_autoskip = 0;
         }
+#ifdef GPGX_PROFILE
+        else if (strcmp(argv[i], "-flushtest") == 0)
+        {
+            prof_flushtest = 1;   /* CacheClearU() once per frame */
+        }
+#endif
         else if (strcmp(argv[i], "-fps") == 0)
         {
             show_fps_counter = 1;
@@ -2265,7 +2313,10 @@ int main(int argc, char *argv[])
     {
         printf("Warning: Timer not available, frame sync disabled\n");
     }
-    
+#ifdef GPGX_PROFILE
+    prof_init();   /* Emu68 only: see amiga/prof.h */
+#endif
+
     /* Initialize configuration */
     config_default();
     
@@ -2640,6 +2691,9 @@ int main(int argc, char *argv[])
         {
             /* Record frame start for EClock timing */
             ReadEClock(&ev_frame_start);
+#ifdef GPGX_PROFILE
+            prof_frame_begin();
+#endif
 
             if (eclock_freq)
             {
@@ -2734,11 +2788,11 @@ int main(int argc, char *argv[])
 #endif
             if ((system_hw & SYSTEM_PBC) == SYSTEM_MD)
             {
-                system_frame_gen(do_render ? 0 : 1);
+                PROF_CALL(PROF_CORE, system_frame_gen(do_render ? 0 : 1));
             }
             else
             {
-                system_frame_sms(do_render ? 0 : 1);
+                PROF_CALL(PROF_CORE, system_frame_sms(do_render ? 0 : 1));
             }
 
             /* Reapply RAM cheat patches (game may reset values each frame) */
@@ -2749,6 +2803,7 @@ int main(int argc, char *argv[])
              * This ensures the next audio buffer is queued with Paula
              * before the potentially slow screen blit, preventing
              * buffer underrun (trembling/stuttering). */
+            PROF_PUSH(PROF_AUDIO);
             if (!audio_disabled)
             {
                 int depth, sent = 0, n_frame, play;
@@ -2827,6 +2882,7 @@ int main(int argc, char *argv[])
                         aud_first_drop = (ULONG)frame_count + 1;
                 }
             }
+            PROF_POP();
 
             if (eclock_freq)
             {
@@ -2835,6 +2891,7 @@ int main(int argc, char *argv[])
             }
 
             /* Update display - only when not skipping */
+            PROF_PUSH(PROF_VIDEO);
             if (do_render)
             {
                 int vp_x, vp_y, vp_w, vp_h;
@@ -2899,6 +2956,22 @@ int main(int argc, char *argv[])
             
             /* Update FPS counter */
             video_cgx_update_fps();
+            PROF_POP();
+#ifdef GPGX_PROFILE
+            prof_frame_end();
+            if (prof_flushtest)
+            {
+                /* What a full JIT cache flush costs on Emu68: the call
+                 * itself here, the re-translation in the next frame's
+                 * sections. */
+                ULONG t[3], u[3];
+                prof_read3(t);
+                CacheClearU();
+                prof_read3(u);
+                prof_flush_ticks += (double)(ULONG)(u[0] - t[0]);
+                prof_flushes++;
+            }
+#endif
 
             /* Frame timing: absolute EClock schedule. A frame that runs past
              * its deadline does not wait, and the next deadline stays where
@@ -3023,10 +3096,74 @@ int main(int argc, char *argv[])
                     printf("Frames: %lu of %lu drawn (%lu.%lu%%)\n",
                            ft_drawn, ft_frames, dr10 / 10, dr10 % 10);
                 }
+                if (svp && ssp_dbg_calls)
+                {
+                    ULONG idle10 = (ULONG)((double)ssp_dbg_idle * 1000.0
+                                           / (double)ssp_dbg_calls + 0.5);
+                    printf("SVP: %lu runs, %lu ended in an idle wait (%lu.%lu%%)\n",
+                           ssp_dbg_calls, ssp_dbg_idle, idle10 / 10, idle10 % 10);
+                    if (ssp_dbg_cycles)
+                        printf("SVP: %lu DSP cycles per frame (limit %d per line)\n",
+                               (ULONG)((double)ssp_dbg_cycles / (double)ft_frames + 0.5),
+                               (int)SVP_cycles);
+#ifdef SVP_VERIFY
+                    printf("SVP verify: %lu runs compared, %lu differed\n",
+                           ssp_verify_runs, ssp_verify_bad);
+#endif
+#ifdef SVP_PROFILE
+                    {
+                        double ops = 0.0;
+                        int o;
+                        for (o = 0; o < 128; o++)
+                            ops += (double)ssp_prof_op[o];
+                        print_top("SVP profile: busiest opcodes (op >> 9)",
+                                  ssp_prof_op, 128, 16, ops);
+                        print_top("SVP profile: busiest program addresses (word)",
+                                  ssp_prof_pc, 0x10000, 40, ops);
+                    }
+#endif
+                }
             }
         }
     }
 
+#ifdef GPGX_PROFILE
+    if (prof_flushes)
+        printf("Profile: -flushtest: %lu CacheClearU() calls, %lu us each (call only)\n",
+               prof_flushes, (ULONG)(prof_ticks_to_us(prof_flush_ticks) / (double)prof_flushes + 0.5));
+    if (svp)
+    {
+        extern unsigned long ssp_iram_writes, ssp_iram_loads, ssp_iram_distinct;
+        ULONG fr = prof_get_frames();
+        printf("SVP IRAM: %lu words written, %lu new contents run (%lu per 100 frames),"
+               " %lu distinct\n", ssp_iram_writes, ssp_iram_loads,
+               fr ? (ULONG)((double)ssp_iram_loads * 100.0 / (double)fr + 0.5) : 0,
+               ssp_iram_distinct);
+        {
+            extern unsigned long ssp_iram_codemods, ssp_iram_samecode, ssp_iram_modruns;
+            extern unsigned long fp_iram_ops, fp_rom_ops;
+            extern unsigned char ssp_iram_exec[0x400];
+            double all = (double)fp_iram_ops + (double)fp_rom_ops;
+            int w, used = 0;
+            for (w = 0; w < 0x400; w++) used += ssp_iram_exec[w];
+            printf("SVP IRAM: %lu.%lu%% of DSP instructions run from IRAM; %d of 1024 IRAM words ever executed\n",
+                   all > 0.0 ? (ULONG)((double)fp_iram_ops * 100.0 / all) : 0,
+                   all > 0.0 ? (ULONG)((double)fp_iram_ops * 1000.0 / all) % 10 : 0, used);
+            printf("SVP IRAM: writes that changed executed code %lu (%lu per 100 frames),"
+                   " same value %lu; DSP runs after a code change %lu (%lu per 100 frames)\n",
+                   ssp_iram_codemods,
+                   fr ? (ULONG)((double)ssp_iram_codemods * 100.0 / (double)fr + 0.5) : 0,
+                   ssp_iram_samecode, ssp_iram_modruns,
+                   fr ? (ULONG)((double)ssp_iram_modruns * 100.0 / (double)fr + 0.5) : 0);
+        }
+    }
+    prof_report();
+    if (svp)
+    {
+        extern void ssp_fast_prof_report(unsigned long frames);
+        ssp_fast_prof_report(prof_get_frames());
+    }
+#endif
     printf("\n");
 
     /* Save SRAM battery backup */

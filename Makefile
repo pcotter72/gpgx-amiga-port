@@ -225,6 +225,29 @@ OBJECTS += amiga/svp_asm.o
 CFLAGS += -DUSE_ASM_SVP
 endif
 
+# SVP opcode / program-address histogram in the exit summary (test builds only;
+# costs two counter increments per DSP instruction)
+ifdef SVP_PROFILE
+CFLAGS += -DSVP_PROFILE
+endif
+
+# Frame-time profiler (test builds only; Emu68 ONLY - reads Emu68's counter
+# with MOVEC, which crashes a real 680x0). Prints a per-section table on exit.
+# SVP interpreter: SVP_VERIFY=1 runs the fast one and the original on every
+# call and compares the DSP state (test builds; much slower); SVP_REFERENCE=1
+# uses only the original interpreter (for speed comparisons)
+ifdef SVP_VERIFY
+CFLAGS += -DSVP_VERIFY
+endif
+ifdef SVP_REFERENCE
+CFLAGS += -DSVP_REFERENCE
+endif
+
+ifdef GPGX_PROFILE
+OBJECTS += amiga/prof.o amiga/prof_asm.o
+CFLAGS += -DGPGX_PROFILE
+endif
+
 # ZIP ROM support (opt-in: make USE_ZIP=1)
 # Copy from miniz release: miniz.h miniz_common.h miniz.c
 #                          miniz_tinfl.h miniz_tinfl.c miniz_zip.h miniz_zip.c
@@ -311,7 +334,7 @@ strip: $(TARGET)
 	$(STRIP) -s $(TARGET) -o $(TARGET).stripped
 
 clean:
-	rm -f $(OBJECTS) amiga/svp_asm.o amiga/blip_asm.o amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o amiga/video_gl.o $(TARGET) $(TARGET).stripped $(LAUNCHER_TARGET) $(LAUNCHER_OBJ)
+	rm -f $(OBJECTS) amiga/svp_asm.o amiga/blip_asm.o amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o amiga/video_gl.o amiga/prof.o amiga/prof_asm.o $(TARGET) $(TARGET).stripped $(LAUNCHER_TARGET) $(LAUNCHER_OBJ)
 	@echo "Clean complete!"
 
 # Dependency generation (optional, for development)
