@@ -574,10 +574,17 @@ int video_cgx_init(int width, int height, int mode)
      * P96 RGBFB_ names describe component order MSB->LSB in a longword.
      * PIXFMT_ARGB32=11 (0xAARRGGBB), PIXFMT_BGRA32=12, PIXFMT_RGBA32=13 */
     {
+        /* PIXFMT_LUT8 (0) .. PIXFMT_RGBA32 (13), cybergraphics.h */
+        static const char *const pixfmt_names[] = {
+            "LUT8", "RGB15", "BGR15", "RGB15PC", "BGR15PC", "RGB16", "BGR16",
+            "RGB16PC", "BGR16PC", "RGB24", "BGR24", "ARGB32", "BGRA32", "RGBA32"
+        };
         ULONG fmt = GetCyberMapAttr(video_screen->RastPort.BitMap, CYBRMATTR_PIXFMT);
         int old_fmt = screen_pixfmt;
 
-        printf("Video: P96 pixel format ID = %lu\n", fmt);
+        printf("Video: pixel format %lu (%s)\n", fmt,
+               fmt < sizeof(pixfmt_names) / sizeof(pixfmt_names[0])
+                   ? pixfmt_names[fmt] : "unknown");
 
         if (fmt >= PIXFMT_RGB15 && fmt <= PIXFMT_BGR16PC)
         {
