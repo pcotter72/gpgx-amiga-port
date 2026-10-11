@@ -27,6 +27,18 @@
 
 #include "ssp16_drc_emit.h"
 
+#ifdef GPGX_PROFILE
+/* -profsvp: split the SVP time into translated blocks, interpreter and
+ * the C around them (two counter reads per block entry from C) */
+#include "prof.h"
+extern int prof_svp_split;
+#define DRC_PROF_PUSH(s) do { if (prof_svp_split) prof_push(s); } while (0)
+#define DRC_PROF_POP()   do { if (prof_svp_split) prof_pop(); } while (0)
+#else
+#define DRC_PROF_PUSH(s) ((void)0)
+#define DRC_PROF_POP()   ((void)0)
+#endif
+
 extern void drc_enter(void *code, void *regs);  /* amiga/svp_drc_asm.s */
 
 struct drc_regs                 /* layout used by drc_enter */
@@ -429,7 +441,9 @@ static void ssp1601_run_drc(int cycles)
   if (s->emu_status & SSP_WAIT_MASK)
   {
     ssp_drc_waitstart++;
+    DRC_PROF_PUSH(PROF_SVP_INT);
     ssp1601_run_fast(cycles);
+    DRC_PROF_POP();
     return;
   }
 
@@ -454,13 +468,17 @@ static void ssp1601_run_drc(int cycles)
       s->gr[SSP_ST].byte.h = (unsigned short)drc_r.st;
       rPC = (unsigned short)pcw;
       ssp_drc_fallbacks++;
+      DRC_PROF_PUSH(PROF_SVP_INT);
       ssp1601_run_fast(drc_r.cyc);
+      DRC_PROF_POP();
       return;
     }
     drc_r.gen = ssp_iram_gen;
     {
       int before = drc_r.cyc;
+      DRC_PROF_PUSH(PROF_SVP_CODE);
       drc_enter(b->code, &drc_r);
+      DRC_PROF_POP();
       ssp_drc_runs++;
       ssp_drc_run_cycles += (double)(before - drc_r.cyc);
     }

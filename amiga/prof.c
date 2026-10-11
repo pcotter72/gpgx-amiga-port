@@ -24,8 +24,11 @@ static ULONG prof_jit_start[4];
 
 static const char *const prof_names[PROF_N] = {
     "main loop other", "core frame glue", "68000", "Z80", "SVP DSP",
-    "VDP render", "VDP DMA", "FM (YM2612)", "audio out", "video out"
+    "VDP render", "VDP DMA", "FM (YM2612)", "audio out", "video out",
+    "SVP in blocks", "SVP interpreter"
 };
+
+int prof_svp_split;                     /* main.c -profsvp: time PROF_SVP_CODE/INT */
 
 static double prof_acc[PROF_N][3];      /* exclusive ticks, m68k insns, ARM insns */
 static unsigned long prof_calls[PROF_N];
@@ -162,7 +165,8 @@ void prof_interval(const char *extra)
     printf("Interval to frame %lu: %lu us/frame: 68000 %lu, Z80 %lu, SVP %lu, VDP %lu,"
            " FM %lu, audio %lu, video %lu, rest %lu%s\n",
            prof_frames, (ULONG)(t + 0.5), (ULONG)(d[PROF_68K] + 0.5),
-           (ULONG)(d[PROF_Z80] + 0.5), (ULONG)(d[PROF_SVP] + 0.5),
+           (ULONG)(d[PROF_Z80] + 0.5),
+           (ULONG)(d[PROF_SVP] + d[PROF_SVP_CODE] + d[PROF_SVP_INT] + 0.5),
            (ULONG)(d[PROF_VDP] + d[PROF_DMA] + 0.5), (ULONG)(d[PROF_FM] + 0.5),
            (ULONG)(d[PROF_AUDIO] + 0.5), (ULONG)(d[PROF_VIDEO] + 0.5),
            (ULONG)(d[PROF_OTHER] + d[PROF_CORE] + 0.5), extra);

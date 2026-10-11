@@ -106,3 +106,18 @@ _prof_jitctrl_trap:
 _prof_jitctrl_ro:
     move.l  d2,d0
     rte
+
+/* ULONG prof_jitctrl2(void) - JITCTRL2 ($1E0, Emu68's second JIT control
+ * register); bit 1 = JC2_DBF_SLOWDOWN ("slow DBF", include/M68k.h) */
+    .globl  _prof_jitctrl2
+_prof_jitctrl2:
+    movem.l a5-a6,-(sp)
+    lea     _prof_jitctrl2_trap(pc),a5
+    movea.l (4).w,a6
+    jsr     -30(a6)                 /* Supervisor(a5) */
+    movem.l (sp)+,a5-a6
+    rts
+
+_prof_jitctrl2_trap:
+    .word   0x4e7a,0x01e0           /* movec JITCTRL2,d0 */
+    rte

@@ -2247,6 +2247,12 @@ int main(int argc, char *argv[])
         {
             prof_flushtest = 1;   /* CacheClearU() once per frame */
         }
+        else if (strcmp(argv[i], "-profsvp") == 0)
+        {
+            /* split the SVP time: translated blocks / interpreter / C */
+            extern int prof_svp_split;
+            prof_svp_split = 1;
+        }
         else if (strncmp(argv[i], "-jitdepth=", 10) == 0)
         {
             /* Emu68 JIT test: at most N m68k instructions per translation
@@ -2721,6 +2727,13 @@ int main(int argc, char *argv[])
             ULONG jc = prof_jitctrl(0, 0);
             printf("Profile: Emu68 JITCTRL $%08lx (%lu instructions per unit)\n",
                    jc, (jc >> 24) ? (jc >> 24) : 256UL);
+            {
+                /* bit 1 = slow DBF: Emu68 then ends a translation unit
+                 * after every DBcc (M68k_LINE5.c) */
+                ULONG jc2 = prof_jitctrl2();
+                printf("Profile: Emu68 JITCTRL2 $%08lx (slow DBF %s)\n",
+                       jc2, (jc2 & 2) ? "on" : "off");
+            }
             if (prof_jitdepth)
             {
                 prof_jitctrl((jc & 0x00ffffffUL) | ((ULONG)(prof_jitdepth & 0xff) << 24), 1);

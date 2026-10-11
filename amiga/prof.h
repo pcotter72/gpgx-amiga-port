@@ -25,6 +25,8 @@ enum
     PROF_FM,        /* YM2612 synthesis (fm_update) */
     PROF_AUDIO,     /* audio_update(), rate control, backend submit */
     PROF_VIDEO,     /* blit / GPU output, FPS counter */
+    PROF_SVP_CODE,  /* -profsvp: SVP time inside translated blocks (drc_enter) */
+    PROF_SVP_INT,   /* -profsvp: SVP interpreter fallback (ssp1601_run_fast) */
     PROF_N
 };
 
@@ -37,6 +39,7 @@ void prof_pop(void);
 void prof_report(void);
 void prof_interval(const char *extra);
 unsigned long prof_jitctrl(unsigned long value, unsigned long write);  /* prof_asm.s */
+unsigned long prof_jitctrl2(void);      /* prof_asm.s */
 unsigned long prof_get_frames(void);
 double prof_ticks_to_us(double ticks);
 #define PROF_PUSH(s)        prof_push(s)
