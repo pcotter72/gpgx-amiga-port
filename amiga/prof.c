@@ -123,11 +123,20 @@ void prof_interval(const char *extra)
 {
     static double last[PROF_N];
     static unsigned long last_frames;
+    static ULONG last_miss;
     double f = (double)(prof_frames - last_frames), d[PROF_N], t = 0.0;
+    ULONG jit[3];
     int i;
 
     if (f <= 0.0 || !prof_freq)
         return;
+    /* Emu68 translations started (JITCMISS) in this interval */
+    prof_jit3(jit);
+    if (!last_frames)
+        last_miss = prof_jit_start[2];
+    printf("Interval: Emu68 translations %lu per frame\n",
+           (ULONG)((double)(ULONG)(jit[2] - last_miss) / f + 0.5));
+    last_miss = jit[2];
     for (i = 0; i < PROF_N; i++)
     {
         d[i] = (prof_acc[i][0] - last[i]) * 1000000.0 / (double)prof_freq / f;
