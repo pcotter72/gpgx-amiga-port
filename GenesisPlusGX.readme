@@ -2,12 +2,12 @@ Short:    Sega Mega Drive/Genesis, SMS, GG emulator for PiStorm
 Author:   Pedro Cotter
 Uploader: Pedro Cotter
 Type:     misc/emu
-Version:  1.8
+Version:  1.9
 Requires: PiStorm/Emu68, AmigaOS 3.x or CaffeineOS, RTG (P96 or CGX)
 Architecture: m68k-amigaos
 
 
-GenesisPlusGX v1.8 for AmigaOS 3.x / CaffeineOS
+GenesisPlusGX v1.9 for AmigaOS 3.x / CaffeineOS
 ================================================
 
 A Sega Mega Drive / Genesis, Master System, Game Gear and SG-1000
@@ -194,6 +194,14 @@ Configuration (defaults)
 
 Changes
 -------
+
+  v1.9 (11.10.2026)
+  - The video and VDP assembler loops no longer use DBF. With
+    Emu68's "slow DBF" option on they ran up to about a third
+    slower per instruction (measured on a CM4); now that option
+    makes no difference.
+  - Virtua Racing: the DSP recompiler handles short subroutine
+    calls inside its blocks (no measurable speed change).
 
   v1.8 (10.10.2026)
   - Virtua Racing: the SVP DSP program is recompiled into 68k

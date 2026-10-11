@@ -7,7 +7,7 @@
     |_|
 
           Sega Genesis / Mega Drive Emulator for AmigaOS 3.x
-                    PiStorm / Emu68 Edition  v1.8
+                    PiStorm / Emu68 Edition  v1.9
           ___________________________________________________
 
 
@@ -340,6 +340,9 @@ CONTENTS
     Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).
     Or try -frameskip=1 to skip every other frame.
     Check fps=1 is set to monitor actual frame rate.
+    With GPU output on, try -nogl: on a CM4 the GPU path cost about
+    6 ms per drawn frame, and four test games drew 52-63% of their
+    frames with it against 91-100% without it.
 
   VIRTUA RACING
     The SVP chip in the cartridge is emulated by recompiling its DSP

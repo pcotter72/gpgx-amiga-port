@@ -484,6 +484,30 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 
 ## Changelog
 
+### v1.9 (11.10.2026)
+
+**Speed:**
+- The video blitters and the VDP helper loops (`amiga/video_asm.s`,
+  `amiga/vdp_asm.s`) count with `subq`/`bne` instead of `dbf`. With
+  Emu68's "slow DBF" option on, every DBcc ends a JIT translation unit;
+  those sections then took 15-35% longer per instruction (CM4). Now the
+  option makes no difference.
+- Virtua Racing: the DSP recompiler translates unconditional calls to
+  short leaf routines into the calling block (verified against the
+  interpreter, 0 differences; no measurable speed change).
+
+**Measured (CM4, four games, no GPU output):** per frame the 68000 takes
+3.2-4.0 ms, FM synthesis 2.6-3.2 ms, VDP rendering 2.0-2.7 ms and the Z80
+1.9-2.1 ms. GPU output costs about 6 ms per drawn frame: the same games drew
+52-63% of their frames with it, 91-100% without.
+
+**Test builds:** the profile build (`GPGX_PROFILE=1`) also counts emulated
+68000/Z80 instructions and FM samples, prints an interval line every 300
+frames (including Emu68 JIT translations, units and free memory), and has
+`-profsvp`, `-jitdepth=N` and `-flushtest`. `make EXTRA_DEFS=...` passes
+extra defines. `amiga/bench/` holds two Emu68 test programs (dispatch cost,
+instruction checks).
+
 ### v1.8 (10.10.2026)
 
 **Virtua Racing:**
