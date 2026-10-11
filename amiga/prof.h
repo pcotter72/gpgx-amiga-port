@@ -35,6 +35,7 @@ void prof_frame_end(void);
 void prof_push(int section);
 void prof_pop(void);
 void prof_report(void);
+void prof_interval(const char *extra);
 unsigned long prof_get_frames(void);
 double prof_ticks_to_us(double ticks);
 #define PROF_PUSH(s)        prof_push(s)

@@ -115,6 +115,35 @@ unsigned long prof_get_frames(void)
     return prof_frames;
 }
 
+/* One line for the frames since the previous call: wall time per frame of
+ * the main sections, so the phases of a run (intro, demo, race) can be told
+ * apart. extra is appended as it is. The printf itself lands in the next
+ * frame's "main loop other". */
+void prof_interval(const char *extra)
+{
+    static double last[PROF_N];
+    static unsigned long last_frames;
+    double f = (double)(prof_frames - last_frames), d[PROF_N], t = 0.0;
+    int i;
+
+    if (f <= 0.0 || !prof_freq)
+        return;
+    for (i = 0; i < PROF_N; i++)
+    {
+        d[i] = (prof_acc[i][0] - last[i]) * 1000000.0 / (double)prof_freq / f;
+        t += d[i];
+        last[i] = prof_acc[i][0];
+    }
+    last_frames = prof_frames;
+    printf("Interval to frame %lu: %lu us/frame: 68000 %lu, Z80 %lu, SVP %lu, VDP %lu,"
+           " FM %lu, audio %lu, video %lu, rest %lu%s\n",
+           prof_frames, (ULONG)(t + 0.5), (ULONG)(d[PROF_68K] + 0.5),
+           (ULONG)(d[PROF_Z80] + 0.5), (ULONG)(d[PROF_SVP] + 0.5),
+           (ULONG)(d[PROF_VDP] + d[PROF_DMA] + 0.5), (ULONG)(d[PROF_FM] + 0.5),
+           (ULONG)(d[PROF_AUDIO] + 0.5), (ULONG)(d[PROF_VIDEO] + 0.5),
+           (ULONG)(d[PROF_OTHER] + d[PROF_CORE] + 0.5), extra);
+}
+
 void prof_report(void)
 {
     ULONG a[3], b[3];

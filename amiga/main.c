@@ -51,6 +51,8 @@ extern void prof_read3(ULONG *out);
 static int prof_flushtest = 0;
 static ULONG prof_flushes = 0;
 static double prof_flush_ticks = 0.0;   /* Emu68 counter ticks */
+#define PROF_INTERVAL 300               /* frames per "Interval" line */
+extern unsigned int ssp_iram_gen;       /* core/cart_hw/svp/ssp16.c */
 #endif
 #include "audio_ahi.h"
 #include "input_amiga.h"
@@ -2986,6 +2988,27 @@ int main(int argc, char *argv[])
                 prof_read3(u);
                 prof_flush_ticks += (double)(ULONG)(u[0] - t[0]);
                 prof_flushes++;
+            }
+            if (prof_get_frames() % PROF_INTERVAL == 0)
+            {
+                /* Per interval: frames drawn, and for the SVP the DSP
+                 * cycles, IRAM words written, new translations and runs
+                 * entered from C, all per frame */
+                static ULONG iv_drawn, iv_cyc, iv_gen, iv_blocks, iv_runs;
+                char extra[160];
+                extra[0] = 0;
+                if (svp)
+                    sprintf(extra, "; DSP cycles %lu, IRAM writes %lu, translations %lu,"
+                            " runs from C %lu",
+                            (ULONG)(ssp_dbg_cycles - iv_cyc) / PROF_INTERVAL,
+                            (ULONG)(ssp_iram_gen - iv_gen) / PROF_INTERVAL,
+                            (ULONG)(ssp_drc_blocks - iv_blocks),
+                            (ULONG)(ssp_drc_runs - iv_runs) / PROF_INTERVAL);
+                printf("Interval: %lu of %d frames drawn%s\n",
+                       ft_drawn - iv_drawn, PROF_INTERVAL, extra);
+                prof_interval("");
+                iv_drawn = ft_drawn; iv_cyc = ssp_dbg_cycles; iv_gen = ssp_iram_gen;
+                iv_blocks = ssp_drc_blocks; iv_runs = ssp_drc_runs;
             }
 #endif
 
