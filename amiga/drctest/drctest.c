@@ -99,6 +99,19 @@ int main(int argc, char **argv)
     }
     total++;
   }
+  /* the same in IRAM (word address < 0x400) */
+  for (op = 0; op <= 0xffff; op++)
+  {
+    code[0x100] = (drc_u16)op;
+    code[0x101] = (drc_u16)(op ^ 0x5a5a);
+    fprintf(ftxt, "| op iram%04lx\n", op);
+    if (!drc_translate(&e, &o, code, 0x100, 0x400, &nwords, DRC_MAX_INS, &start2, &nwords2) && o.overflow)
+    {
+      fprintf(stderr, "buffer overflow at IRAM op %04lx\n", op);
+      return 1;
+    }
+    total++;
+  }
   /* regions with branches into themselves: random programs of 4-20
    * instructions where every call/bra targets one of their own
    * instructions (loops backwards, skips forwards, calls), followed by an
@@ -186,6 +199,24 @@ int main(int argc, char **argv)
         return 1;
       }
       printf("call test %d: words %d, callee range %04lx +%d\n", c, nwords,
+             (unsigned long)start2, nwords2);
+      total++;
+    }
+    /* in IRAM, with a PM4 write (0x00c3 ld PM4,A) in the caller and in
+     * the callee */
+    {
+      static const drc_u16 icaller[] = { 0x00c3, 0x4800, 0x0260, 0x0013, 0x4c00, 0x0400 };
+      static const drc_u16 ileaf[] = { 0x00c3, 0x0065 };
+      for (i = 0x200; i < 0x300; i++) code[i] = 0x4c00;
+      for (w = 0; w < 6; w++) code[0x200 + w] = icaller[w];
+      for (w = 0; w < 2; w++) code[0x260 + w] = ileaf[w];
+      fprintf(ftxt, "| op icall\n");
+      if (!drc_translate(&e, &o, code, 0x200, 0x400, &nwords, DRC_MAX_INS, &start2, &nwords2) && o.overflow)
+      {
+        fprintf(stderr, "buffer overflow in IRAM call test\n");
+        return 1;
+      }
+      printf("IRAM call test: words %d, callee range %04lx +%d\n", nwords,
              (unsigned long)start2, nwords2);
       total++;
     }
