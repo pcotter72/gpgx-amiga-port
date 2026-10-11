@@ -5,6 +5,15 @@
  * Simple version for compatibility
  */
 
+/*
+ * Loops end in "subq.l #1,d0 / bne", not dbf: with Emu68's "slow DBF"
+ * option on, every DBcc ends a JIT translation unit (M68k_LINE5.c,
+ * EMIT_DBcc), so each iteration went back through Emu68's main loop.
+ * Measured 2026-10-11 (CM4, Virtua Racing): video out 2.2 -> 1.4 ns per
+ * m68k instruction, VDP render 1.9 -> 1.6, with slow DBF off. subq/bne
+ * also counts the full 32 bits, so no fix-up for counts > 65535.
+ */
+
 	.text
 	.even
 
@@ -29,8 +38,6 @@ _Blit565toRGBA_asm:
 	tst.l	d0
 	ble.s	.Ldone1x
 
-	subq.l	#1,d0			| for dbf
-
 .Lloop1x:
 	moveq	#0,d1
 	move.w	(a0)+,d1		| get RGB565 pixel
@@ -38,11 +45,8 @@ _Blit565toRGBA_asm:
 	moveq	#0,d2			| PIPELINE BRIDGE: dead write; fills stall slot
 	move.l	(a2,d1.l),(a1)+		| lookup and store [no stall]
 
-	dbf	d0,.Lloop1x
-
-	| handle counts > 65535
-	sub.l	#0x10000,d0
-	bpl.s	.Lloop1x
+	subq.l	#1,d0
+	bne.s	.Lloop1x
 
 .Ldone1x:
 	movem.l	(sp)+,d2/a2
@@ -72,8 +76,6 @@ _Blit565toRGBA_2x_asm:
 	tst.l	d0
 	ble.s	.Ldone2x
 
-	subq.l	#1,d0
-
 .Lloop2x:
 	moveq	#0,d1
 	move.w	(a0)+,d1		| get RGB565 pixel
@@ -85,10 +87,8 @@ _Blit565toRGBA_2x_asm:
 	move.l	d2,(a2)+		| dst2 first
 	move.l	d2,(a2)+		| dst2 second
 
-	dbf	d0,.Lloop2x
-
-	sub.l	#0x10000,d0
-	bpl.s	.Lloop2x
+	subq.l	#1,d0
+	bne.s	.Lloop2x
 
 .Ldone2x:
 	movem.l	(sp)+,d2/a2-a3
@@ -124,8 +124,6 @@ _Blit565toRGBA_2x_scanline_asm:
 	tst.l	d0
 	ble.s	.Ldone_sl
 
-	subq.l	#1,d0
-
 .Lloop_sl:
 	moveq	#0,d1
 	move.w	(a0)+,d1		| get RGB565 pixel
@@ -142,10 +140,8 @@ _Blit565toRGBA_2x_scanline_asm:
 	move.l	d2,(a2)+		| dst2 first copy
 	move.l	d2,(a2)+		| dst2 second copy
 
-	dbf	d0,.Lloop_sl
-
-	sub.l	#0x10000,d0
-	bpl.s	.Lloop_sl
+	subq.l	#1,d0
+	bne.s	.Lloop_sl
 
 .Ldone_sl:
 	movem.l	(sp)+,d2/a2-a4

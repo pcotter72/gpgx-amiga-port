@@ -21,6 +21,15 @@
  * All functions use standard AmigaOS C ABI: args on stack, a0-a1/d0-d1 scratch.
  */
 
+/*
+ * Loops end in "subq.l #1,d0 / bne", not dbf: with Emu68's "slow DBF"
+ * option on, every DBcc ends a JIT translation unit (M68k_LINE5.c,
+ * EMIT_DBcc), so each iteration went back through Emu68's main loop.
+ * Measured 2026-10-11 (CM4, Virtua Racing): video out 2.2 -> 1.4 ns per
+ * m68k instruction, VDP render 1.9 -> 1.6, with slow DBF off. subq/bne
+ * also counts the full 32 bits, so no fix-up for counts > 65535.
+ */
+
 
 	.text
 	.even
@@ -91,8 +100,6 @@ _draw_bg_columns_asm:
 	tst.l	d0
 	ble.s	.Lbgcol_done		| guard: skip if count <= 0
 
-	subq.l	#1,d0			| adjust for dbf (count-1 iterations after first)
-
 .Lbgcol_loop:
 	| ------ Load nametable entry: atbuf = nt[index & col_mask] ------
 	| Pipeline note: lsl.l result used immediately as EA index -> 1-cycle stall on 68030.
@@ -152,11 +159,8 @@ _draw_bg_columns_asm:
 	or.l	d2,d1
 	move.l	d1,(a0)+
 
-	dbf	d0,.Lbgcol_loop		| decrement, branch if not -1
-
-	| Handle count > 65535 (defensive; in practice count <= 42)
-	sub.l	#0x10000,d0
-	bpl.s	.Lbgcol_loop
+	subq.l	#1,d0
+	bne.w	.Lbgcol_loop
 
 .Lbgcol_done:
 	movem.l	(sp)+,d2-d7/a2-a3
@@ -186,7 +190,7 @@ _draw_bg_columns_asm:
  *
  * Register map:
  *   a0=srca  a1=srcb  a2=dst  a3=table
- *   d0=width-1  d1=srca_byte  d2=srcb_byte (becomes 16-bit index)
+ *   d0=width  d1=srca_byte  d2=srcb_byte (becomes 16-bit index)
  *===========================================================================*/
 
 	.globl	_merge_pixels_asm
@@ -203,8 +207,6 @@ _merge_pixels_asm:
 	tst.l	d0
 	ble.s	.Lmerge_done
 
-	subq.l	#1,d0			| for dbf
-
 	| Pipeline fix: pre-zero d1 so the first iteration's move.b into d1 works
 	| correctly. The loop body ends with moveq #0,d1 which doubles as both the
 	| PIPELINE BRIDGE (fills the ALU->EA stall slot after or.w d1,d2) and the
@@ -220,10 +222,8 @@ _merge_pixels_asm:
 	moveq	#0,d1			| PIPELINE BRIDGE: re-zero d1 for next iter (fills stall slot)
 	move.b	(a3,d2.l),(a2)+		| *dst++ = table[index]; no stall (d2 written 1 instr ago)
 
-	dbf	d0,.Lmerge_loop
-
-	sub.l	#0x10000,d0
-	bpl.s	.Lmerge_loop
+	subq.l	#1,d0
+	bne.s	.Lmerge_loop
 
 .Lmerge_done:
 	movem.l	(sp)+,d2/a2-a3
@@ -256,7 +256,7 @@ _merge_pixels_asm:
  *
  * Register map:
  *   a0=src  a1=dst  a2=pixel_tbl
- *   d0=pair_count-1  d1=pixel1_index  d2=pixel2_index
+ *   d0=pair_count  d1=pixel1_index  d2=pixel2_index
  *===========================================================================*/
 
 	.globl	_remap_line_asm
@@ -273,7 +273,7 @@ _remap_line_asm:
 	ble.s	.Lremap_done
 
 	lsr.l	#1,d0			| d0 = width/2 (width always even: 320 or 256)
-	subq.l	#1,d0			| adjust for dbf
+	beq.s	.Lremap_done		| width 1: no pair (the loop needs d0 > 0)
 
 .Lremap_loop:
 	| Load two pixels, compute both byte offsets, then store in interleaved order.
@@ -291,10 +291,8 @@ _remap_line_asm:
 	move.w	(a2,d1.l),(a1)+		| *dst++ = pixel_tbl[pixel1]; no stall
 	move.w	(a2,d2.l),(a1)+		| *dst++ = pixel_tbl[pixel2]; no stall
 
-	dbf	d0,.Lremap_loop
-
-	sub.l	#0x10000,d0
-	bpl.s	.Lremap_loop
+	subq.l	#1,d0
+	bne.s	.Lremap_loop
 
 .Lremap_done:
 	movem.l	(sp)+,d2/a2
