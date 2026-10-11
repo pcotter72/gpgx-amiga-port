@@ -69,9 +69,12 @@ struct drc_env
                           * write cell, write raw, write C, write IRAM, write
                           * ignored */
   drc_u32 addr_vlog_iram; /* verify builds: void (u32 off, u32 old, u32 val), else 0 */
-  drc_u32 addr_exitstat; /* profile builds: unsigned long[10] block exit counts, else 0:
+  drc_u32 addr_exitstat; /* profile builds: unsigned long[20] block exit counts, else 0:
                           * end, bra fwd, bra back, call, loop inside, not taken,
-                          * PC write, too few cycles, flag exit, - */
+                          * PC write, too few cycles, flag exit, -; calls by callee
+                          * (10-12 ROM, 13-15 IRAM: leaf, leaf with branches,
+                          * other); 16 ret in IRAM block, 17 ret in ROM block,
+                          * 18 other PC write, 19 inlined calls */
 };
 
 struct drc_out
@@ -467,6 +470,7 @@ static void drc_here(struct drc_out *o, struct drc_fix f)
                               * c = reg, b = write, a = blind access, u = idle WAIT
                               * bit for a PM4 read that returns 0 here (or 0);
                               * back = continue after the guard, back2 = done */
+#define COLD_EXIT_D0    11   /* d0 = next PC (runtime); d5 -= a; to the dispatcher */
 #define DRC_MAX_COLD 512   /* up to ~9 per instruction (PM to PM moves) x 40 + checks */
 
 struct drc_cold
@@ -690,6 +694,9 @@ static void g_reg_write(struct drc_tr *t, int r)
       g_push_stack(t); break;
     case SSPR_PC:   /* write_PC: SET_PC(d); g_cycles-- ; ends the block */
       g_stat(t, 6);
+      if (t->e->addr_exitstat)
+        g_stat(t, t->code[t->pcw] == ((SSPR_PC << 4) | SSPR_STACK)
+                  ? (t->pcw < 0x400 ? 16 : 17) : 18);
       g_sub_cyc(t, t->k + 2);   /* next PC is in d0 already */
       i_goto_abs(t->o, t->e->addr_dispatch);
       t->ends = 1;
@@ -1325,6 +1332,11 @@ static void drc_cold_emit(struct drc_tr *t)
         i_bra_mark(o, c->back);
         break;
       }
+      case COLD_EXIT_D0:
+        g_stat(t, 6);
+        g_sub_cyc(t, c->a);
+        i_goto_abs(o, e->addr_dispatch);
+        break;
       case COLD_IDLE4:
         i_ori_w_d16(o, c->a, e->off_emust + 2, R_S);
         i_st_abs(o, e->addr_flag);
@@ -1380,6 +1392,49 @@ static int drc_is_uncond(drc_u32 op)
 {
   if (drc_is_branch(op) && drc_branch_cond(op) == 1) return 1;
   return drc_dst_reg(op) == SSPR_PC;
+}
+
+/* What a call target looks like (profile statistics): 0 = straight-line
+ * code up to a "ld PC, STACK" (ret) within 40 instructions, 1 = the same
+ * with conditional branches on the way, 2 = anything else (calls, jumps,
+ * other PC writes, too long, leaves IRAM). */
+static int drc_callee_kind(const drc_u16 *code, drc_u32 target)
+{
+  drc_u32 a = target, limit = target < 0x400 ? 0x400 : 0x10000;
+  int n, branches = 0;
+  for (n = 0; n < 40 && a < limit; n++)
+  {
+    drc_u32 op = code[a];
+    if (op == ((SSPR_PC << 4) | SSPR_STACK)) return branches ? 1 : 0;
+    if (drc_is_branch(op))
+    {
+      if ((op >> 9) == 0x24 || drc_branch_cond(op) == 1) return 2;
+      if (drc_branch_cond(op) == 2) branches = 1;
+    }
+    else if (drc_dst_reg(op) == SSPR_PC)
+      return 2;
+    a += (drc_u32)drc_ins_len(op);
+  }
+  return 2;
+}
+
+/* Instructions of a leaf routine at target up to and including its
+ * "ld PC, STACK" (ret) - straight code, conditional branches allowed, no
+ * calls, jumps or other PC writes, inside target's memory region - or -1
+ * if it is not such a routine within maxn instructions. */
+static int drc_callee_len(const drc_u16 *code, drc_u32 target, int maxn)
+{
+  drc_u32 a = target, limit = target < 0x400 ? 0x400 : 0x10000;
+  int n;
+  for (n = 0; n < maxn && a < limit; n++)
+  {
+    drc_u32 op = code[a];
+    if (op == ((SSPR_PC << 4) | SSPR_STACK)) return n + 1;
+    if (drc_is_branch(op) && ((op >> 9) == 0x24 || drc_branch_cond(op) == 1)) return -1;
+    if (!drc_is_branch(op) && drc_dst_reg(op) == SSPR_PC) return -1;
+    a += (drc_u32)drc_ins_len(op);
+  }
+  return -1;
 }
 
 static void i_cmpi_l(struct drc_out *o, drc_u32 imm, int dn)
@@ -1714,7 +1769,8 @@ static void drc_emit_dispatch(const struct drc_env *e, struct drc_out *o)
  * cycles for), 0 on buffer overflow; *nwords = program words used. */
 static int drc_translate(const struct drc_env *e, struct drc_out *o,
                          const drc_u16 *code, drc_u32 start, drc_u32 limit,
-                         int *nwords, int max_ins)
+                         int *nwords, int max_ins,
+                         drc_u32 *start2, int *nwords2)
 {
   struct drc_tr tr, *t = &tr;
   drc_u32 addr[DRC_MAX_INS + 1];
@@ -1725,16 +1781,57 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
   int fix_to[DRC_MAX_INS];
   int nfix = 0, n = 0, i, j, k, done = 0, lab0 = 0;
   drc_u32 a = start;
+  /* inlined call: list index of the call and of the callee's ret, the
+   * return address, the callee's program range */
+  int ci, ri, in_callee, pass, may_inline = 1;
+  drc_u32 ret_addr = 0, cstart = 0, cend = 0, caller_end;
 
   t->e = e; t->o = o; t->code = code;
   t->cold = drc_cold_buf; t->ncold = 0;
 
   /* 1. the instructions of the region */
+  for (pass = 0; pass < 2; pass++)
+  {
+  n = 0; a = start; ci = ri = -1; in_callee = 0;
   for (;;)
   {
     drc_u32 op = code[a];
     addr[n++] = a;
     a += (drc_u32)drc_ins_len(op);
+    if (in_callee)
+    {
+      /* inside the inlined leaf routine: only its ret ends it */
+      if (op == ((SSPR_PC << 4) | SSPR_STACK))
+      {
+        ri = n - 1;
+        cend = a;
+        in_callee = 0;
+        a = ret_addr;                   /* the caller continues */
+        if (n >= max_ins || a >= limit || a > 0xffff) break;
+        continue;
+      }
+      if (n >= max_ins) break;
+      continue;
+    }
+    /* An unconditional call to a short leaf routine in the same memory
+     * region is translated into this block (measured: ~1,000 calls per
+     * frame to such routines, nearly all in IRAM). The push and pop
+     * really happen; the ret continues inline only when it pops the
+     * expected return address. */
+    if (may_inline && ci < 0 && (op >> 9) == 0x24 && drc_branch_cond(op) == 1)
+    {
+      drc_u32 tgt = code[addr[n - 1] + 1];
+      int len = drc_callee_len(code, tgt, max_ins);
+      if (len > 0 && n + len < max_ins && (tgt < 0x400) == (start < 0x400))
+      {
+        ci = n - 1;
+        ret_addr = a;
+        cstart = tgt;
+        in_callee = 1;
+        a = tgt;
+        continue;
+      }
+    }
     if (drc_is_uncond(op)) break;
     /* A block ends at its first call/bra, even one whose condition is
      * never true here (only Z and N are emulated). Virtua Racing loads
@@ -1759,6 +1856,17 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
     }
     if (n >= max_ins || a >= limit || a > 0xffff) break;
   }
+  if (in_callee) { cend = a; caller_end = ret_addr; }
+  else caller_end = a;
+  /* the two program ranges must not overlap (each address once in
+   * the list); otherwise translate again without inlining */
+  if (ci >= 0 && cstart < caller_end && start < cend)
+  {
+    may_inline = 0;
+    continue;
+  }
+  break;
+  }
   addr[n] = a;
 
   /* 2. segment starts */
@@ -1772,6 +1880,8 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
     for (j = 0; j < n; j++)
       if (addr[j] == code[addr[i] + 1]) { seg[j] = 1; break; }
   }
+  if (ci >= 0 && ci + 1 < n) seg[ci + 1] = 1;   /* callee entry */
+  if (ri >= 0 && ri + 1 < n) seg[ri + 1] = 1;   /* back in the caller */
   for (i = 0; i < n; i++)
   {
     if (!seg[i]) continue;
@@ -1806,6 +1916,32 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
     }
     t->k = k;
 
+    if (i == ci)
+    {
+      /* inlined call: write_STACK(return address), write_PC (2 cycles) */
+      g_stat(t, 19);
+      t->pc_after = pcw + 2;
+      i_move_w_imm_dn(o, (int)(pcw + 2), 0);
+      g_push_stack(t);
+      g_sub_cyc(t, k + 2);
+      k = 0;
+      continue;
+    }
+    if (i == ri)
+    {
+      /* inlined ret: ld PC, STACK - read_STACK, write_PC (2 cycles);
+       * continue inline only if it popped the expected address */
+      struct drc_cold *c;
+      t->pc_after = pcw + 1;
+      g_stack_read(t);
+      i_cmpi_w(o, (int)ret_addr, 0);
+      c = g_cold(t, COLD_EXIT_D0, i_bcc_w(o, CC_NE));
+      c->a = k + 2;
+      g_sub_cyc(t, k + 2);
+      k = 0;
+      continue;
+    }
+
     if (drc_is_branch(op) && drc_branch_cond(op) != 0)
     {
       drc_u32 next = pcw + 2, target = code[pcw + 1];
@@ -1831,6 +1967,8 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
       else
       {
         g_stat(t, (op >> 9) == 0x24 ? 3 : target < pcw ? 2 : 1);
+        if ((op >> 9) == 0x24 && e->addr_exitstat)
+          g_stat(t, 10 + (target < 0x400 ? 3 : 0) + drc_callee_kind(code, target));
         g_exit(t, target, k + 2);
       }
       if (c == 1)
@@ -1874,7 +2012,9 @@ static int drc_translate(const struct drc_env *e, struct drc_out *o,
   for (i = 0; i < nfix; i++)
     drc_patch(o, fix[i], label_pos[fix_to[i]]);
 
-  *nwords = (int)(a - start);
+  *nwords = (int)(caller_end - start);
+  *start2 = ci >= 0 ? cstart : 0;
+  *nwords2 = ci >= 0 ? (int)(cend - cstart) : 0;
   return o->overflow ? 0 : seglen[0];
 }
 

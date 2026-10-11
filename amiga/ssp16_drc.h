@@ -45,7 +45,8 @@ struct drc_block
   void *code;
   u32 gen;                      /* IRAM generation it was last checked at */
   unsigned short nins, nwords;
-  unsigned short src[1];        /* nwords program words (IRAM blocks) */
+  unsigned short start2, nwords2; /* inlined callee: second program range */
+  unsigned short src[1];        /* nwords + nwords2 program words */
 };
 
 /* code buffer: up to 32 MB (3,000 blocks with inline PM handlers were
@@ -84,7 +85,8 @@ unsigned long ssp_drc_runs;                /* blocks entered from C */
 unsigned long ssp_drc_disp[7];             /* dispatcher: chained, and why it returned */
 unsigned long ssp_drc_hcnt[32];            /* handler calls: [r] reads, [16 + r] writes */
 unsigned long ssp_drc_pmstat[10];          /* profile builds: PM paths taken (drc_env) */
-unsigned long ssp_drc_exitstat[10];        /* profile builds: block exits by kind */
+unsigned long ssp_drc_exitstat[20];        /* profile builds: block exits by kind */
+unsigned long ssp_drc_tr_inlined;          /* translations with an inlined call */
 double ssp_drc_run_cycles;                 /* DSP cycles they used */
 unsigned long ssp_drc_waitstart;           /* runs that began in an idle wait */
 /* translation statistics */
@@ -302,7 +304,8 @@ static struct drc_block *drc_new(u32 pcw)
   const unsigned short *base = (const unsigned short *)svp->iram_rom;
   struct drc_out o;
   struct drc_block *b;
-  int nins = 0, nwords, max_ins = DRC_MAX_INS;
+  int nins = 0, nwords, nwords2 = 0, max_ins = DRC_MAX_INS;
+  drc_u32 start2 = 0;
   u32 need;
 
   for (;;)
@@ -333,7 +336,8 @@ static struct drc_block *drc_new(u32 pcw)
     o.pos = 0;
     o.cap = DRC_BLOCK_MAX;
     o.overflow = 0;
-    nins = drc_translate(&drc_e, &o, base, pcw, pcw < 0x400 ? 0x400 : 0x10000, &nwords, max_ins);
+    nins = drc_translate(&drc_e, &o, base, pcw, pcw < 0x400 ? 0x400 : 0x10000, &nwords, max_ins,
+                         &start2, &nwords2);
     if (nins)
       break;
     /* did not fit in DRC_BLOCK_MAX bytes: try a shorter block */
@@ -345,19 +349,24 @@ static struct drc_block *drc_new(u32 pcw)
   if (!nins)
     return NULL;
 
-  need = (u32)(sizeof(struct drc_block) + 2 * nwords + 3) & ~3u;
+  need = (u32)(sizeof(struct drc_block) + 2 * (nwords + nwords2) + 3) & ~3u;
   b = (struct drc_block *)(drc_meta + drc_meta_pos);
   drc_meta_pos += need;
   b->code = drc_code + drc_code_pos;
   drc_code_pos += ((u32)o.pos + 3) & ~3u;
   b->nins = (unsigned short)nins;
   b->nwords = (unsigned short)nwords;
+  b->start2 = (unsigned short)start2;
+  b->nwords2 = (unsigned short)nwords2;
   memcpy(b->src, base + pcw, 2 * nwords);
+  if (nwords2)
+    memcpy(b->src + nwords, base + start2, 2 * nwords2);
   b->gen = ssp_iram_gen;
   b->next = drc_map[pcw];
   drc_map[pcw] = b;
   ssp_drc_blocks++;
   if (pcw < 0x400) ssp_drc_tr_iram++;
+  if (nwords2) ssp_drc_tr_inlined++;
   ssp_drc_tr_words += (double)nwords;
   ssp_drc_tr_bytes += (double)o.pos;
   return b;
@@ -375,7 +384,8 @@ static struct drc_block *drc_get(u32 pcw)
       return b;
     if (b->gen == ssp_iram_gen)
       return b;
-    if (!memcmp(b->src, base + pcw, 2 * b->nwords))
+    if (!memcmp(b->src, base + pcw, 2 * b->nwords) &&
+        (!b->nwords2 || !memcmp(b->src + b->nwords, base + b->start2, 2 * b->nwords2)))
     {
       b->gen = ssp_iram_gen;
       if (pp != &drc_map[pcw])      /* most recent first */

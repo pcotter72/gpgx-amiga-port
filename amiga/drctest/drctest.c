@@ -38,7 +38,8 @@ int main(int argc, char **argv)
   struct drc_out o;
   FILE *fbin;
   unsigned long op;
-  int i, nwords, total = 0;
+  int i, nwords, nwords2, total = 0;
+  drc_u32 start2;
 
   if (argc < 3) { fprintf(stderr, "usage: drctest out.bin out.s\n"); return 1; }
 
@@ -91,7 +92,7 @@ int main(int argc, char **argv)
     code[0x500] = (drc_u16)op;
     code[0x501] = (drc_u16)(op ^ 0x5a5a);     /* immediate, varies */
     fprintf(ftxt, "| op %04lx\n", op);
-    if (!drc_translate(&e, &o, code, 0x500, 0x10000, &nwords, DRC_MAX_INS) && o.overflow)
+    if (!drc_translate(&e, &o, code, 0x500, 0x10000, &nwords, DRC_MAX_INS, &start2, &nwords2) && o.overflow)
     {
       fprintf(stderr, "buffer overflow at op %04lx\n", op);
       return 1;
@@ -143,11 +144,49 @@ int main(int argc, char **argv)
           code[at[m] + 1] = (drc_u16)RND();
       }
       fprintf(ftxt, "| op prog%d\n", prog);
-      if (!drc_translate(&e, &o, code, 0x700, 0x10000, &nwords, DRC_MAX_INS) && o.overflow)
+      if (!drc_translate(&e, &o, code, 0x700, 0x10000, &nwords, DRC_MAX_INS, &start2, &nwords2) && o.overflow)
       {
         fprintf(stderr, "buffer overflow in program %d\n", prog);
         return 1;
       }
+      total++;
+    }
+  }
+  /* inlined calls: caller at 0x900, leaf routines elsewhere.
+   * 0x0013 ld X,A / 0x0031 ld A,X / 0x0065 ld PC,STACK (ret) /
+   * 0x4800 call always / 0x4d50 bra Z / 0x4c00 bra always / 0x9801 add #1 */
+  {
+    static const drc_u16 caller[] = { 0x0031, 0x4800, 0x0960, 0x0013, 0x4c00, 0x0400 };
+    static const drc_u16 leaf1[] = { 0x9801, 0x0013, 0x0065 };                       /* straight */
+    static const drc_u16 leaf2[] = { 0x9801, 0x4d50, 0x0985, 0x0013, 0x0065 };       /* with a skip */
+    int c, w;
+    for (c = 0; c < 4; c++)
+    {
+      for (i = 0x900; i < 0xa00; i++) code[i] = 0x4c00;
+      for (w = 0; w < 6; w++) code[0x900 + w] = caller[w];
+      if (c == 0) for (w = 0; w < 3; w++) code[0x960 + w] = leaf1[w];
+      if (c == 1) for (w = 0; w < 5; w++) code[0x960 + w] = leaf2[w];
+      if (c == 2)
+      {
+        /* a long leaf: the block ends inside it */
+        for (w = 0; w < 37; w++) code[0x960 + w] = 0x9801;
+        code[0x960 + 37] = 0x0065;
+      }
+      if (c == 3)
+      {
+        /* callee overlapping the caller: no inlining */
+        code[0x902] = 0x0903;
+        code[0x903] = 0x0013;
+        code[0x904] = 0x0065;
+      }
+      fprintf(ftxt, "| op call%d\n", c);
+      if (!drc_translate(&e, &o, code, 0x900, 0x10000, &nwords, DRC_MAX_INS, &start2, &nwords2) && o.overflow)
+      {
+        fprintf(stderr, "buffer overflow in call test %d\n", c);
+        return 1;
+      }
+      printf("call test %d: words %d, callee range %04lx +%d\n", c, nwords,
+             (unsigned long)start2, nwords2);
       total++;
     }
   }

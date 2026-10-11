@@ -3195,7 +3195,7 @@ int main(int argc, char *argv[])
         extern void ssp_fast_prof_report(unsigned long frames);
         ssp_fast_prof_report(prof_get_frames());
         {
-            extern unsigned long ssp_drc_pmstat[10], ssp_drc_exitstat[10];
+            extern unsigned long ssp_drc_pmstat[10], ssp_drc_exitstat[20];
             double f = (double)prof_get_frames();
             if (f > 0.0)
                 printf("SVP PM paths per frame: read ROM %lu DRAM %lu raw %lu C %lu;"
@@ -3214,6 +3214,21 @@ int main(int argc, char *argv[])
                        (ULONG)(ssp_drc_exitstat[5] / f + 0.5), (ULONG)(ssp_drc_exitstat[6] / f + 0.5),
                        (ULONG)(ssp_drc_exitstat[7] / f + 0.5), (ULONG)(ssp_drc_exitstat[8] / f + 0.5),
                        (ULONG)(ssp_drc_exitstat[4] / f + 0.5));
+            if (f > 0.0)
+                printf("SVP calls per frame: callee in ROM: leaf %lu, leaf with branches %lu,"
+                       " other %lu; in IRAM: leaf %lu, leaf with branches %lu, other %lu;"
+                       " ret in IRAM blocks %lu, in ROM blocks %lu, other PC writes %lu\n",
+                       (ULONG)(ssp_drc_exitstat[10] / f + 0.5), (ULONG)(ssp_drc_exitstat[11] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[12] / f + 0.5), (ULONG)(ssp_drc_exitstat[13] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[14] / f + 0.5), (ULONG)(ssp_drc_exitstat[15] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[16] / f + 0.5), (ULONG)(ssp_drc_exitstat[17] / f + 0.5),
+                       (ULONG)(ssp_drc_exitstat[18] / f + 0.5));
+            if (f > 0.0)
+            {
+                extern unsigned long ssp_drc_tr_inlined;
+                printf("SVP inlined calls per frame %lu; translations with an inlined call %lu\n",
+                       (ULONG)(ssp_drc_exitstat[19] / f + 0.5), ssp_drc_tr_inlined);
+            }
         }
     }
 #endif
