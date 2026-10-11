@@ -3431,6 +3431,13 @@ void z80_run(unsigned int cycles)
     Z80.after_ei = FALSE;
     R++;
     EXEC_INLINE(op,ROP());
+#ifdef GPGX_PROFILE
+    {
+      /* Amiga port, test builds only: emulated instructions (amiga/prof.c) */
+      extern unsigned long prof_z80_insns;
+      prof_z80_insns++;
+    }
+#endif
   }
 } 
 

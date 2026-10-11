@@ -30,6 +30,9 @@ static const char *const prof_names[PROF_N] = {
 
 int prof_svp_split;                     /* main.c -profsvp: time PROF_SVP_CODE/INT */
 
+/* emulated work, counted in the core (m68kcpu.c, z80.c, sound.c) */
+unsigned long prof_m68k_insns, prof_z80_insns, prof_fm_samples;
+
 static double prof_acc[PROF_N][3];      /* exclusive ticks, m68k insns, ARM insns */
 static unsigned long prof_calls[PROF_N];
 static int prof_stack[PROF_DEPTH];
@@ -170,6 +173,24 @@ void prof_interval(const char *extra)
            (ULONG)(d[PROF_VDP] + d[PROF_DMA] + 0.5), (ULONG)(d[PROF_FM] + 0.5),
            (ULONG)(d[PROF_AUDIO] + 0.5), (ULONG)(d[PROF_VIDEO] + 0.5),
            (ULONG)(d[PROF_OTHER] + d[PROF_CORE] + 0.5), extra);
+    {
+        /* emulated work in this interval, and the time per unit (section
+         * time as measured, the counter reads included) */
+        static unsigned long last_c[3];
+        unsigned long c[3];
+        double n[3];
+        c[0] = prof_m68k_insns; c[1] = prof_z80_insns; c[2] = prof_fm_samples;
+        for (i = 0; i < 3; i++)
+        {
+            n[i] = (double)(c[i] - last_c[i]) / f;
+            last_c[i] = c[i];
+        }
+        printf("Interval: per frame 68000 %lu insns (%lu ns each), Z80 %lu insns (%lu ns),"
+               " FM %lu samples (%lu ns)\n",
+               (ULONG)(n[0] + 0.5), n[0] > 0.0 ? (ULONG)(d[PROF_68K] * 1000.0 / n[0] + 0.5) : 0UL,
+               (ULONG)(n[1] + 0.5), n[1] > 0.0 ? (ULONG)(d[PROF_Z80] * 1000.0 / n[1] + 0.5) : 0UL,
+               (ULONG)(n[2] + 0.5), n[2] > 0.0 ? (ULONG)(d[PROF_FM] * 1000.0 / n[2] + 0.5) : 0UL);
+    }
 }
 
 void prof_report(void)
@@ -223,6 +244,27 @@ void prof_report(void)
     printf("Profile: total %lu us/frame. Each call above also carries about one read\n"
            "Profile: of overhead (calls/frame x the read cost on the first line).\n",
            (ULONG)(total * us_per_tick / (double)prof_frames + 0.5));
+    {
+        /* Cost per emulated unit, with one counter read per call taken off
+         * the section's time and host instructions */
+        static const int sec[3] = { PROF_68K, PROF_Z80, PROF_FM };
+        static const char *const what[3] = { "68000 instruction", "Z80 instruction", "FM sample" };
+        unsigned long cnt[3];
+        double f = (double)prof_frames;
+        cnt[0] = prof_m68k_insns; cnt[1] = prof_z80_insns; cnt[2] = prof_fm_samples;
+        for (k = 0; k < 3; k++)
+        {
+            double calls = (double)prof_calls[sec[k]];
+            double us = prof_acc[sec[k]][0] * us_per_tick - calls * read[0] * us_per_tick;
+            double hi = prof_acc[sec[k]][1] - calls * read[1];
+            if (!cnt[k])
+                continue;
+            printf("Profile: %-17s %7lu per frame, %4lu ns and %3lu host m68k insns each\n",
+                   what[k], (ULONG)((double)cnt[k] / f + 0.5),
+                   (ULONG)(us * 1000.0 / (double)cnt[k] + 0.5),
+                   (ULONG)(hi / (double)cnt[k] + 0.5));
+        }
+    }
 }
 
 #endif /* GPGX_PROFILE */

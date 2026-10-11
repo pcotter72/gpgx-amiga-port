@@ -90,6 +90,13 @@ INLINE void fm_update(int cycles)
 
     /* run FM chip to sample buffer */
     YM_Update(fm_ptr, samples);
+#ifdef GPGX_PROFILE
+    {
+      /* Amiga port, test builds only: FM samples made (amiga/prof.c) */
+      extern unsigned long prof_fm_samples;
+      prof_fm_samples += (unsigned long)samples;
+    }
+#endif
 
     /* update FM buffer pointer */
     fm_ptr += (samples * 2);

@@ -108,6 +108,8 @@ DEFINES = -DAMIGA -DWORDS_BIGENDIAN \
 
 # All compiler flags
 CFLAGS = $(STDFLAGS) $(CPUFLAGS) $(OPTFLAGS) $(WARNFLAGS) $(INCPATHS) $(DEFINES)
+# test builds only: extra -D options, e.g. make EXTRA_DEFS=-DM68K_FORCE_INLINE
+CFLAGS += $(EXTRA_DEFS)
 
 # Linker flags - LIBCFLAGS must come last!
 LDFLAGS = $(CPUFLAGS) -flto

@@ -309,6 +309,13 @@ void m68k_run(unsigned int cycles)
     /* Execute instruction */
     m68ki_instruction_jump_table[REG_IR]();
     USE_CYCLES(CYC_INSTRUCTION[REG_IR]);
+#ifdef GPGX_PROFILE
+    {
+      /* Amiga port, test builds only: emulated instructions (amiga/prof.c) */
+      extern unsigned long prof_m68k_insns;
+      prof_m68k_insns++;
+    }
+#endif
 
     /* Trace m68k_exception, if necessary */
     m68ki_exception_if_trace(); /* auto-disable (see m68kcpu.h) */
