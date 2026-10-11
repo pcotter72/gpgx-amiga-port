@@ -15,9 +15,10 @@
 
 extern void prof_read3(ULONG *out);     /* prof_asm.s: counter, m68k, ARM */
 extern ULONG prof_freq_read(void);
-extern void prof_jit3(ULONG *out);   /* JITSIZE, JITFREE, JITCMISS */
+extern void prof_jit4(ULONG *out);   /* JITSIZE, JITFREE, JITCMISS, JITCOUNT */
 
-static ULONG prof_jit_start[3];
+static ULONG prof_jit_start[4];
+
 
 #define PROF_DEPTH 16
 
@@ -40,7 +41,7 @@ void prof_init(void)
 {
     int i, k;
     prof_freq = prof_freq_read();
-    prof_jit3(prof_jit_start);
+    prof_jit4(prof_jit_start);
     for (i = 0; i < PROF_N; i++)
     {
         for (k = 0; k < 3; k++)
@@ -125,18 +126,32 @@ void prof_interval(const char *extra)
     static unsigned long last_frames;
     static ULONG last_miss;
     double f = (double)(prof_frames - last_frames), d[PROF_N], t = 0.0;
-    ULONG jit[3];
+    static ULONG last_units;
+    ULONG jit[4], made;
     int i;
 
     if (f <= 0.0 || !prof_freq)
         return;
-    /* Emu68 translations started (JITCMISS) in this interval */
-    prof_jit3(jit);
+    /* Emu68 translations started (JITCMISS) in this interval, units in the
+     * cache and free JIT memory now. Emu68 frees units in two ways: when
+     * allocating a new unit fails (64 least recently used at a time,
+     * M68k_Translator.c), and after an instruction cache flush, when a
+     * unit runs again and its code checksum no longer matches. Units
+     * freed = translations - growth of the unit count. */
+    prof_jit4(jit);
     if (!last_frames)
+    {
         last_miss = prof_jit_start[2];
-    printf("Interval: Emu68 translations %lu per frame\n",
-           (ULONG)((double)(ULONG)(jit[2] - last_miss) / f + 0.5));
+        last_units = prof_jit_start[3];
+    }
+    made = (ULONG)(jit[2] - last_miss);
+    printf("Interval: Emu68 translations %lu per frame, units freed %ld per frame;"
+           " now %lu units, %lu KB free\n",
+           (ULONG)((double)made / f + 0.5),
+           (LONG)((double)(LONG)(made - (jit[3] - last_units)) / f),
+           jit[3], jit[1] / 1024);
     last_miss = jit[2];
+    last_units = jit[3];
     for (i = 0; i < PROF_N; i++)
     {
         d[i] = (prof_acc[i][0] - last[i]) * 1000000.0 / (double)prof_freq / f;
@@ -179,8 +194,8 @@ void prof_report(void)
            (unsigned long)(read[0] * us_per_tick * 1000.0 + 0.5),
            (unsigned long)(read[1] + 0.5), (unsigned long)(read[2] + 0.5));
     {
-        ULONG j[3];
-        prof_jit3(j);
+        ULONG j[4];
+        prof_jit4(j);
         printf("Profile: Emu68 JIT cache %lu KB, %lu KB free; %lu translations per frame\n",
                j[0] / 1024, j[1] / 1024,
                (ULONG)((double)(ULONG)(j[2] - prof_jit_start[2]) / (double)prof_frames + 0.5));

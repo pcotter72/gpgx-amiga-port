@@ -52,6 +52,7 @@ static int prof_flushtest = 0;
 static ULONG prof_flushes = 0;
 static double prof_flush_ticks = 0.0;   /* Emu68 counter ticks */
 #define PROF_INTERVAL 300               /* frames per "Interval" line */
+static int prof_jitdepth = 0;           /* -jitdepth=N: Emu68 instructions per unit */
 extern unsigned int ssp_iram_gen;       /* core/cart_hw/svp/ssp16.c */
 #endif
 #include "audio_ahi.h"
@@ -2246,6 +2247,14 @@ int main(int argc, char *argv[])
         {
             prof_flushtest = 1;   /* CacheClearU() once per frame */
         }
+        else if (strncmp(argv[i], "-jitdepth=", 10) == 0)
+        {
+            /* Emu68 JIT test: at most N m68k instructions per translation
+             * unit (1-256) while the emulation runs, then the old value */
+            prof_jitdepth = atoi(argv[i] + 10);
+            if (prof_jitdepth < 1 || prof_jitdepth > 256)
+                prof_jitdepth = 0;
+        }
 #endif
         else if (strcmp(argv[i], "-nodrc") == 0)
         {
@@ -2705,6 +2714,24 @@ int main(int argc, char *argv[])
             next_deadline = eclock_ticks(&ev_run_start) + frame_period_ticks;
         }
 
+#ifdef GPGX_PROFILE
+        {
+            /* Emu68 JIT control register: logged, and with -jitdepth=N its
+             * JCC_INSN_DEPTH field (bits 31-24, 0 = 256) set for the run */
+            ULONG jc = prof_jitctrl(0, 0);
+            printf("Profile: Emu68 JITCTRL $%08lx (%lu instructions per unit)\n",
+                   jc, (jc >> 24) ? (jc >> 24) : 256UL);
+            if (prof_jitdepth)
+            {
+                prof_jitctrl((jc & 0x00ffffffUL) | ((ULONG)(prof_jitdepth & 0xff) << 24), 1);
+                printf("Profile: Emu68 JITCTRL set to $%08lx (-jitdepth=%d)\n",
+                       prof_jitctrl(0, 0), prof_jitdepth);
+                prof_jitdepth = (int)(jc >> 24);   /* old field, restored after the loop */
+            }
+            else
+                prof_jitdepth = -1;                /* nothing to restore */
+        }
+#endif
         while (running)
         {
             /* Record frame start for EClock timing */
@@ -3062,6 +3089,14 @@ int main(int argc, char *argv[])
             
             frame_count++;
         }
+#ifdef GPGX_PROFILE
+        if (prof_jitdepth >= 0)
+        {
+            ULONG jc = prof_jitctrl(0, 0);
+            prof_jitctrl((jc & 0x00ffffffUL) | ((ULONG)prof_jitdepth << 24), 1);
+            printf("Profile: Emu68 JITCTRL restored to $%08lx\n", prof_jitctrl(0, 0));
+        }
+#endif
 
         /* Exit summary. Integer-only output: nothing else in this program
          * prints floating point through libnix's printf. */
