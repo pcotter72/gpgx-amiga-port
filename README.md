@@ -51,9 +51,10 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - Amiga 500/2000 + PiStorm + Pi 3A+ (Emu68) - **video only, use -nosound**
 
 ### Build Requirements
-- bebbo's amiga-gcc cross-compiler (GCC 6.5+)
-  - Windows installer: http://franke.ms/download/setup-amiga-gcc.exe
-  - GitHub: https://github.com/bebbo/amiga-gcc
+- m68k-amigaos-gcc 6.5.0b. The release binaries are built with the AmigaPorts
+  amiga6 build (https://github.com/AmigaPorts/amiga-gcc); bebbo's amiga-gcc
+  (https://github.com/bebbo/amiga-gcc) also works. Set `TOOLCHAIN=` on the
+  make line or edit the Makefile to point at the install.
 
 ## Building
 
@@ -62,7 +63,7 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 ```cmd
 build.bat              &:: Build for 68030 + all ASM optimizations (recommended)
 build.bat 68040        &:: Build for 68040 with FPU
-build.bat pi3          &:: Build for Pi 3 PiStorm (LTO)
+build.bat pi3          &:: Build for Pi 3 PiStorm (68030)
 build.bat launcher     &:: Build MUI launcher only
 build.bat clean        &:: Clean build files
 ```
@@ -476,7 +477,7 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - [x] MUI launcher GUI with ROM browser and full config editor (`build.bat launcher`)
 - [x] EClock hybrid frame timer (sub-millisecond accuracy, eliminates PiStorm timer jitter)
 - [x] Per-section profiling (input/emu/audio/video us breakdown, printed every 300 frames)
-- [x] LTO enabled by default (whole-program optimisation across all C translation units)
+- [ ] LTO (removed 20.10.2026: lto-wrapper does not work on the build host; no measurable speed change on a CM4)
 - [ ] blip_mix_samples ASM (for future Sega CD support, currently NO_SCD)
 - [x] Cheat code support via RetroArch `.cht` files (Game Genie + GameShark/AR, ROM + RAM patches)
 - [ ] Screenshot support

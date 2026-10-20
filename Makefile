@@ -16,7 +16,7 @@
 #    make clean        - Clean build files
 #    make LIBC=clib2   - Use clib2 instead of libnix
 #    make USE_ASM_SVP=1   - Also enable assembly-optimized SVP (Virtua Racing)
-#    make pi3          - Build for Pi 3 PiStorm (adds LTO for extra whole-program gain)
+#    make pi3          - Build for Pi 3 PiStorm (68030; no LTO, see OPTFLAGS)
 #
 #  Windows: If "/bin/sh not found" errors occur, the shell fix below handles it.
 #
@@ -28,7 +28,16 @@ ifeq ($(OS),Windows_NT)
 endif
 
 # Cross-compiler prefix
-PREFIX = m68k-amigaos-
+# Compiler: the AmigaPorts amiga6 gcc 6.5.0b (build 20260819091705) at
+# D:/amiga-gcc-amiga6, named by absolute path (switched 2026-10-18). It is a
+# native Windows binary: under _make.exe + sh.exe the recipe environment
+# loses TMP, so TMP is exported here. The older gcc 6.5.0b at D:/amiga-gcc
+# (build 250215183648) has a wrong-code peephole at -O2/-Os (merges a 16-bit
+# and a following 32-bit zero store into one clr.l); if ever building with
+# it again, add -fno-peephole2. Override with TOOLCHAIN=... on the make line.
+export TMP := D:\amiga-gcc\tmp
+TOOLCHAIN ?= D:/amiga-gcc-amiga6
+PREFIX = $(TOOLCHAIN)/bin/m68k-amigaos-
 
 CC = $(PREFIX)gcc
 AS = $(PREFIX)as
@@ -55,7 +64,9 @@ LIBC ?= nix20
 # -fomit-frame-pointer frees a register
 # -fno-common required for some AmigaOS code patterns
 # -fno-strict-aliasing required for GPGX type-punning through pointers
-OPTFLAGS = -O3 -fomit-frame-pointer -fno-common -ffast-math -fno-strict-aliasing -funroll-loops -flto
+# NO -flto: lto-wrapper.exe silently fails on this host (COLLECT_GCC gets a
+# mangled /amiga-gcc/... path). Removed 2026-10-18; do not re-add.
+OPTFLAGS = -O3 -fomit-frame-pointer -fno-common -ffast-math -fno-strict-aliasing -funroll-loops
 
 # C standard - use gnu89 for C89 with GNU extensions (needed for inline, etc.)
 STDFLAGS = -std=gnu89
@@ -112,7 +123,7 @@ CFLAGS = $(STDFLAGS) $(CPUFLAGS) $(OPTFLAGS) $(WARNFLAGS) $(INCPATHS) $(DEFINES)
 CFLAGS += $(EXTRA_DEFS)
 
 # Linker flags - LIBCFLAGS must come last!
-LDFLAGS = $(CPUFLAGS) -flto
+LDFLAGS = $(CPUFLAGS)
 LIBS = -lm $(LIBCFLAGS)
 
 #############################################################################
@@ -357,11 +368,10 @@ debug: $(TARGET)
 small: OPTFLAGS = -Os -fomit-frame-pointer
 small: $(TARGET)
 
-# Pi 3 PiStorm build - same as default but with LTO for extra whole-program optimisation
+# Pi 3 PiStorm build - used to add -flto here; -flto does not work on this
+# host (see OPTFLAGS), so this target is now the same build as the default.
 # Note: Pi 3 is too slow for full-speed emulation with sound.
 # Recommended: Pi CM4 or Pi 4 for full speed with sound.
-pi3: CFLAGS  += -flto
-pi3: LDFLAGS += -flto
 pi3: $(TARGET)
 	@echo ""
 	@echo "Pi 3 build complete."

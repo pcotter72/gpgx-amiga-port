@@ -132,10 +132,10 @@ if "%TARGET%"=="pi3" (
     echo Building Pi 3 PiStorm optimised binary...
     echo CPU: 68030 with all ASM optimisations
     echo.
-    set "BUILD_STAMP=pi3 68030"
+    set "BUILD_STAMP=pi3 68030 %LIBC% %USE_ZIP_FLAG% %MINIGL_FLAG%"
     call :check_stamp
     if exist GenesisPlusGX del GenesisPlusGX
-    make pi3 CPU=68030 LIBC=%LIBC% SHELL=sh.exe
+    make pi3 CPU=68030 LIBC=%LIBC% USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 %USE_ZIP_FLAG% %MINIGL_FLAG% SHELL=sh.exe
     if not exist GenesisPlusGX goto build_failed
     echo.
     echo ========================================

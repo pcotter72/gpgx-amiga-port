@@ -31,7 +31,7 @@
 #include <stdlib.h>
 
 static const char version[] =
-    "$VER: GenesisPlusGX-Launcher 1.4 (11.10.2026) by Pedro Cotter";
+    "$VER: GenesisPlusGX-Launcher 1.5 (20.10.2026) by Pedro Cotter";
 
 /* ---- MUI library ---- */
 struct Library *MUIMasterBase = NULL;
@@ -39,9 +39,11 @@ struct Library *LowLevelBase  = NULL;
 #ifndef MUIMASTER_NAME
 #define MUIMASTER_NAME "muimaster.library"
 #endif
-#ifndef MUIMASTER_VMIN
+/* MUI 3.8 (CaffeineOS) is muimaster.library 19.x. The amiga6 toolchain's
+ * libraries/mui.h sets MUIMASTER_VMIN to 20, which would refuse it, so the
+ * value is forced after the include (a #ifndef guard here would do nothing). */
+#undef MUIMASTER_VMIN
 #define MUIMASTER_VMIN 19
-#endif
 
 /* ---- MUI helpers ---- */
 #ifndef MAKE_ID
