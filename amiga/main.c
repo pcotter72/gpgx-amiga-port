@@ -1548,8 +1548,8 @@ typedef struct
     int ahimargin;      /* Obsolete, ignored: buffers are exact-length and the */
     int paulamargin;    /* queue depth is rate-controlled (2026-10). Still parsed. */
     int autoskip;       /* Dynamic frame skip: 1=auto (skip render when behind), 0=off */
-    int hqfm;           /* High quality FM synthesis: 1=band-limited (default), 0=linear (much faster) */
-    int hqpsg;          /* High quality PSG: 1=band-limited (default), 0=linear (faster) */
+    int hqfm;           /* FM -> blip flush: 1=band-limited (default), 0=linear (~1% of a Pi 3 frame) */
+    int hqpsg;          /* PSG: 1=band-limited (default), 0=linear (no measurable gain on a Pi 3) */
     int screendepth;    /* RTG screen depth: 32 (default) or 16 (RGB565, half the blit bandwidth) */
     int glout;          /* 1 = GPU output via PiStorm3D minigl.library (GL builds only) */
     int gleffect;       /* GPU output effect: 0=sharp 1=smooth 2=scanlines 3=composite */
@@ -1602,7 +1602,7 @@ static void config_set_defaults(config_file_t *cfg)
     cfg->ahimargin = 0;
     cfg->paulamargin = 0;
     cfg->autoskip = 1;        /* Dynamic frame skip on by default */
-    cfg->hqfm = 1;            /* Band-limited FM; set 0 on slow machines (Pi 3, real 68030) */
+    cfg->hqfm = 1;            /* Band-limited FM resampling (0 saves ~0.2 ms/frame on a Pi 3) */
     cfg->hqpsg = 1;           /* Band-limited PSG */
     cfg->screendepth = 32;    /* 32-bit BGRA (VideoCore fast path); 16 halves blit bandwidth */
     cfg->glout = 0;           /* GPU output off by default */
@@ -1961,7 +1961,7 @@ static void config_save_default(void)
             "paulafreq=41243\n"
             "ahifreq=44100\n"
             "; hqfm/hqpsg: 1=band-limited synthesis (best quality),\n"
-            ";   0=linear interpolation - MUCH faster FM, use on Pi 3 / real 68030\n"
+            ";   0=linear interpolation (hqfm=0 saves about 1% of the frame on a Pi 3)\n"
             "hqfm=1\n"
             "hqpsg=1\n"
             "; screendepth: 32 (default, fastest on PiStorm/VideoCore) or 16\n"
@@ -2360,8 +2360,9 @@ int main(int argc, char *argv[])
     config.psg_preamp = cfg.psgvol;
 
     /* Sound chip quality (applied after config_default() for the same reason).
-     * hq_fm=0 switches YM2612 resampling from band-limited to linear
-     * interpolation - one of the biggest CPU savings on slow machines. */
+     * hq_fm=0 switches the YM2612 -> blip flush from band-limited to linear
+     * interpolation: 0.4 -> 0.2 ms of a 24 ms frame on a Pi 3 (2026-10-20);
+     * the synthesis itself is unchanged. */
     config.hq_fm  = cfg.hqfm;
     config.hq_psg = cfg.hqpsg;
 
@@ -2866,7 +2867,9 @@ int main(int argc, char *argv[])
             {
                 int depth, sent = 0, n_frame, play;
 
+                PROF_PUSH(PROF_AUD_BLIP);
                 audio_samples = audio_update(audio_buffer);
+                PROF_POP();
 
                 if (audio_use_ahi)
                     depth = ahi_audio_queued();

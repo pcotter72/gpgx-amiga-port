@@ -286,8 +286,8 @@ CONTENTS
                           1=force on  0=leave as the system has it
   fmvol=60              FM synth volume (10-100)
   psgvol=60             PSG volume (10-200)
-  hqfm=1                FM quality: 1=band-limited  0=linear (much faster)
-  hqpsg=1               PSG quality: 1=band-limited  0=linear (faster)
+  hqfm=1                FM quality: 1=band-limited  0=linear (~1% faster)
+  hqpsg=1               PSG quality: 1=band-limited  0=linear (no gain)
   screendepth=32        Screen depth: 32 (PiStorm/VideoCore) or 16
                           (classic Zorro RTG cards - half blit bandwidth)
   glout=0               GPU output (PiStorm3D): 0=off  1=on
@@ -330,11 +330,17 @@ CONTENTS
     Run the emulator from a Shell and read the "Audio:" and "Frames:"
     lines it prints when you quit.  "ran dry" counts audible gaps.
     Gaps together with frames "over budget" mean the machine is too
-    slow for the settings: set hqfm=0, or lower the sample rate with
-    -paulafreq=27710.  (paulamargin / ahimargin no longer do anything.)
+    slow for the settings: 8-bit Paula (audio=paula) halves the copy
+    of the audio buffers to Chip RAM (0.7 ms of a 24 ms frame on a
+    Pi 3); a lower rate (-paulafreq=27710) shrinks it too. hqfm=0 is
+    worth only 0.2 ms.
+    (paulamargin / ahimargin no longer do anything.)
 
   TOO SLOW / DROPPING FRAMES
-    Set hqfm=0 in the config - much cheaper FM synthesis, big CPU saving.
+    On a Pi 3 the emulator needs about 23 ms per 16.7 ms frame with any
+    sound settings (measured 20.10.2026: 68000 6.3 ms, YM2612 5.9, Z80
+    3.8, PSG 1.1, audio buffers to Chip RAM 0.7-1.4), so expect frame
+    skipping there; audio=paula and hqfm=0 together gain about 4%.
     On classic Amigas with Zorro RTG cards, set screendepth=16 (halves
     the video bandwidth).
     Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).

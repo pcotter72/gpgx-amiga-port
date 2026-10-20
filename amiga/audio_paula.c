@@ -24,6 +24,7 @@
 #include <clib/alib_protos.h>
 
 #include "audio_paula.h"
+#include "prof.h"          /* empty macros outside GPGX_PROFILE builds */
 
 /* Assembly conversion routines */
 #ifdef USE_ASM_AUDIO
@@ -567,12 +568,16 @@ void paula_audio_submit(signed short *buffer, int samples)
         {
             BYTE *dl = fast_buf_left  ? fast_buf_left  : buf;
             BYTE *dr = fast_buf_right ? fast_buf_right : buf_r;
+            PROF_PUSH(PROF_AUD_CONV);
             ConvertStereo8_asm(buffer, dl, dr, samples_to_output);
+            PROF_POP();
+            PROF_PUSH(PROF_AUD_COPY);
             if (fast_buf_left)
             {
                 CopyMem(fast_buf_left,  buf,   samples_to_output);
                 CopyMem(fast_buf_right, buf_r, samples_to_output);
             }
+            PROF_POP();
         }
 #else
         convert_16bit_stereo_to_8bit_stereo(buffer, buf, buf_r, samples_to_output);
@@ -583,9 +588,13 @@ void paula_audio_submit(signed short *buffer, int samples)
 #ifdef USE_ASM_AUDIO
         {
             BYTE *dl = fast_buf_left ? fast_buf_left : buf;
+            PROF_PUSH(PROF_AUD_CONV);
             ConvertMono8_asm(buffer, dl, samples_to_output);
+            PROF_POP();
+            PROF_PUSH(PROF_AUD_COPY);
             if (fast_buf_left)
                 CopyMem(fast_buf_left, buf, samples_to_output);
+            PROF_POP();
         }
 #else
         convert_16bit_stereo_to_8bit_mono(buffer, buf, samples_to_output);
@@ -617,10 +626,12 @@ void paula_audio_submit(signed short *buffer, int samples)
     /* Disable/Enable ensures L and R start on the same scheduler tick.
      * Without this, a task switch between the two BeginIO calls causes
      * L/R phase drift that accumulates to audible crackling. */
+    PROF_PUSH(PROF_AUD_IO);
     Disable();
     BeginIO((struct IORequest *)io_left);
     BeginIO((struct IORequest *)io_right);
     Enable();
+    PROF_POP();
     req_pending_left[fill_buf]  = TRUE;
     req_pending_right[fill_buf] = TRUE;
     paula_dbg_submitted++;

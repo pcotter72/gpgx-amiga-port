@@ -110,6 +110,7 @@ INLINE void fm_update(int cycles)
 /* Amiga port, test builds only: time FM synthesis (amiga/prof.h) */
 #include "prof.h"
 #define fm_update(c) PROF_CALL(PROF_FM, fm_update(c))
+#define psg_end_frame(c) PROF_CALL(PROF_PSG, psg_end_frame(c))
 #endif
 
 static void YM2612_Reset(unsigned int cycles)
@@ -422,6 +423,9 @@ int sound_update(unsigned int cycles)
       /* FM buffer start pointer */
       ptr = fm_buffer;
 
+#ifdef GPGX_PROFILE
+      PROF_PUSH(PROF_FM_BLIP);   /* Amiga port, test builds only */
+#endif
       /* flush FM samples */
       if (config.hq_fm)
       {
@@ -451,6 +455,9 @@ int sound_update(unsigned int cycles)
         }
         while (time < cycles);
       }
+#ifdef GPGX_PROFILE
+      PROF_POP();
+#endif
     }
 
     /* reset FM buffer pointer */

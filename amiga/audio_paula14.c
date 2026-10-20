@@ -41,6 +41,7 @@
 #include <clib/alib_protos.h>
 
 #include "audio_paula14.h"
+#include "prof.h"          /* empty macros outside GPGX_PROFILE builds */
 
 #ifdef USE_ASM_AUDIO
 extern void Convert14Tab_asm(signed short *src,
@@ -452,6 +453,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
     for (r = 0; r < NUM_ROLES; r++)
         d[r] = fast[r] ? fast[r] : buf[fill_buf][r];
 
+    PROF_PUSH(PROF_AUD_CONV);
 #ifdef USE_ASM_AUDIO
     Convert14Tab_asm(buffer, d[R_LHI], d[R_LLO], d[R_RHI], d[R_RLO], num,
                      tab14 + 32768, tab14 + 65536 + 32768);
@@ -470,9 +472,12 @@ void paula14_audio_submit(signed short *buffer, int samples)
         }
     }
 #endif
+    PROF_POP();
+    PROF_PUSH(PROF_AUD_COPY);
     if (fast[0])
         for (r = 0; r < NUM_ROLES; r++)
             CopyMem(fast[r], buf[fill_buf][r], num);
+    PROF_POP();
 
     /* Each request plays exactly num samples (no tail padding) */
     for (r = 0; r < NUM_ROLES; r++)
@@ -491,6 +496,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
      * writes queue instead of playing, CMD_START releases all four at once.
      * Otherwise every channel is still playing the previous buffer and the
      * new ones follow it at the same sample on each channel. */
+    PROF_PUSH(PROF_AUD_IO);
     sync = channels_idle();
     if (sync)
     {
@@ -507,6 +513,7 @@ void paula14_audio_submit(signed short *buffer, int samples)
         DoIO((struct IORequest *)io_ctl);
         paula14_dbg_syncs++;
     }
+    PROF_POP();
 
     pending[fill_buf] = TRUE;
     paula14_dbg_submitted++;

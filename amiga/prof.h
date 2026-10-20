@@ -27,6 +27,12 @@ enum
     PROF_VIDEO,     /* blit / GPU output, FPS counter */
     PROF_SVP_CODE,  /* -profsvp: SVP time inside translated blocks (drc_enter) */
     PROF_SVP_INT,   /* -profsvp: SVP interpreter fallback (ssp1601_run_fast) */
+    PROF_AUD_BLIP,  /* audio_update(): blip_buf read into the frame buffer */
+    PROF_AUD_CONV,  /* Paula backends: 16-bit -> 8/14-bit conversion (Fast RAM) */
+    PROF_AUD_COPY,  /* Paula backends: CopyMem of the converted frame to Chip RAM */
+    PROF_AUD_IO,    /* Paula backends: CMD_WRITE BeginIO (+ CMD_STOP/START sync) */
+    PROF_PSG,       /* psg_end_frame(): SN76489 synthesis into the blip buffer */
+    PROF_FM_BLIP,   /* sound_update(): FM samples -> blip_add_delta (hq_fm) */
     PROF_N
 };
 

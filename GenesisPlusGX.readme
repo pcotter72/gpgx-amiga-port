@@ -178,8 +178,8 @@ Configuration (defaults)
 
   audio=paula        paula / 14bit / ahi / off
   paulafreq=41243    ahifreq=44100
-  hqfm=1             0 = linear FM resampling, much faster
-  hqpsg=1            0 = linear PSG resampling, faster
+  hqfm=1             0 = linear FM resampling (about 1% faster)
+  hqpsg=1            0 = linear PSG resampling (no measurable gain)
   screendepth=32     16 for Zorro RTG cards
   glout=0            gleffect=1    glsize=640x480
   scanlines=0        vsync=0       frameskip=0

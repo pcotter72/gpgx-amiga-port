@@ -379,7 +379,7 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     snprintf(line,sizeof(line),"paulafilter=%d\n",c->paulafilter);       WR(line);
     WR("; ahiboost: 0=1x 1=2x 2=4x 3=8x 4=16x\n");
     snprintf(line,sizeof(line),"ahiboost=%d\n",c->ahiboost);             WR(line);
-    WR("; hqfm/hqpsg: 1=band-limited synthesis, 0=linear (much faster FM on slow machines)\n");
+    WR("; hqfm/hqpsg: 1=band-limited synthesis, 0=linear (hqfm=0 saves about 1% on a Pi 3)\n");
     snprintf(line,sizeof(line),"hqfm=%d\n",c->hqfm);                     WR(line);
     snprintf(line,sizeof(line),"hqpsg=%d\n",c->hqpsg);                   WR(line);
     WR("; fmvol: FM synthesiser preamp 10-100 (default 60). Clips above ~65.\n");

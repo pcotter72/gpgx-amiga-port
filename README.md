@@ -20,8 +20,9 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - Post-blip volume boost for louder 8-bit output without resampler distortion
 - 14-bit Paula calibration support (auto-loads from ENV:CyberSound/SoundDrivers/14Bit_Calibration)
 - Configurable sample rates for all audio backends
-- Configurable synthesis quality (`hqfm`/`hqpsg`) - linear mode is a large
-  CPU saving on slow machines (Pi 3, real 68030)
+- Configurable synthesis quality (`hqfm`/`hqpsg`). Measured on a Pi 3 (20.10.2026):
+  `hqfm=0` saves only ~0.2 ms of a 24 ms frame and `hqpsg=0` nothing, because the
+  YM2612 synthesis itself (5.9 ms) is unchanged; they are not a rescue for slow machines
 - **Non-blocking Paula audio** with quad-buffer ring
 - Non-blocking AHI audio with ring buffer (zero-drop at 60fps)
 - Keyboard and CD32 gamepad input via lowlevel.library
@@ -363,7 +364,7 @@ ahiboost=0
 # exactly one frame and the queue depth is rate-controlled.
 
 # Synthesis quality: 1=band-limited (default), 0=linear interpolation
-# hqfm=0 is one of the biggest CPU savings on Pi 3 / real 68030
+# (hqfm=0 saves about 1% of the frame on a Pi 3; measured 20.10.2026)
 hqfm=1
 hqpsg=1
 
@@ -597,7 +598,7 @@ instruction checks).
   32-bit path, direct RGB565 row copy on native-format screens; all eight
   15/16-bit CGX pixel formats supported, safe fallback to 32-bit
 - `hqfm` / `hqpsg` - sound synthesis quality knobs; `hqfm=0` switches the
-  YM2612 to linear resampling, a large CPU saving for Pi 3 / real 68030
+  YM2612 to linear resampling (later measured: about 1% of the frame on a Pi 3)
 - Launcher GUI now exposes every config setting, including the previously
   file-only buffer margins, plus the new screen depth and HQ audio options
 
