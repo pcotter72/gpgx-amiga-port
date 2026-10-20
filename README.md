@@ -181,7 +181,7 @@ The exit summary prints the measured `GL: upload` / `draw+present` times.
 | Option | Description |
 |--------|-------------|
 | `-14bit` | 14-bit Paula stereo (4 channels, higher quality) |
-| `-paulafreq=N` | Paula sample rate in Hz (default: 41243, up to 44100 in RTG) |
+| `-paulafreq=N` | Paula sample rate in Hz (default: 41243, up to 44100; 27710 is used automatically on a 15 kHz native display) |
 | `-ahi` | Use AHI audio system (for sound cards, systems without Paula) |
 | `-ahifreq=N` | AHI sample rate: 22050, 27710, 32000, 44100 (default: 44100) |
 | `-paulafilter` | Force the Amiga audio (LED) filter on (~7 kHz low-pass) |

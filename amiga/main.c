@@ -87,6 +87,11 @@ struct Device *TimerBase = NULL;
 
 /* Audio configuration */
 #define AUDIO_FREQUENCY 27710  /* Optimal Paula rate (period 128) */
+/* Autoskip never skips more than this many frames in a row, so a machine
+ * that is permanently a little behind still draws every (N+1)th frame.
+ * Was 4 (every 5th frame): an A500 with a Pi 3 that is 11% too slow then
+ * drew 22% of its frames (measured 2026-10-20). */
+#define AUTOSKIP_MAX_RUN 2
 #define AUDIO_SAMPLES   1024  /* Must cover worst case: period 80 PAL = 892 spf.
                                * 800 caused buffer overflow at period 86 (825 spf)
                                * and period 80 (892 spf). 1024 covers all rates. */
@@ -1954,6 +1959,8 @@ static void config_save_default(void)
             "; 14bit gives better dynamic range (~13 bit effective) on the same Paula hardware\n"
             "audio=paula\n"
             "; paulafreq: paula/14bit sample rate. 0=auto (period 128, ~27710 Hz PAL / ~27965 Hz NTSC)\n"
+            ";   Rates above ~28 kHz need a 31 kHz native display; on a 15 kHz one\n"
+            ";   (e.g. A500) the emulator falls back to 27710 by itself.\n"
             "; IMPORTANT: 27710 Hz is low quality - FM harmonics above 13855 Hz alias as noise.\n"
             "; On A1200+PiStorm CM4 with RTG (no bitplane DMA), always use 41243 Hz:\n"
             ";   Pi 3 (slower):  0      (period 128, ~27710 Hz - avoids CPU overload)\n"
@@ -2422,6 +2429,36 @@ int main(int argc, char *argv[])
     /* Initialize Genesis Plus GX core AFTER loading ROM */
     system_init();
     
+    /* Paula cannot fetch samples below period 124 on a 15 kHz native
+     * display (HRM: one audio DMA slot per scan line and channel); only
+     * the doubled 31 kHz modes allow it. The scan rate is read off the
+     * vertical beam counter: a 15 kHz frame has 262/312 lines, a doubled
+     * one about twice that (A500 + Pi 3: 262, A1200 + CM4: 525, measured
+     * 2026-10-20 with amiga/bench/beamtest). Without this an A500 dropped
+     * 627 audio frames in 90 s at 41243 Hz. */
+    if (!use_ahi && paula_freq > 0 && GfxBase)
+    {
+        ULONG pclk = amiga_hw_pal ? 3546895UL : 3579545UL;
+        if (pclk / (ULONG)paula_freq < 124)
+        {
+            LONG beam_max = 0, beam_last = -1, wraps = 0, i;
+            for (i = 0; i < 60000 && wraps < 3; i++)
+            {
+                LONG p = VBeamPos();
+                if (p > beam_max) beam_max = p;
+                if (p < beam_last) wraps++;
+                beam_last = p;
+            }
+            if (beam_max < 400)
+            {
+                printf("Audio: native display is 15 kHz (%ld lines per frame): Paula\n"
+                       "       cannot fetch %d Hz, using 27710 Hz (paulafreq=0) instead.\n",
+                       (long)beam_max, paula_freq);
+                paula_freq = 0;
+            }
+        }
+    }
+
     /* Initialize emulator audio */
     {
         /* Determine the actual core sample rate.
@@ -2799,8 +2836,8 @@ int main(int argc, char *argv[])
              *   frameskip=3: render every 4th  (25% video)
              *
              * Auto (frameskip=0, autoskip=1):
-             *   If last frame was over budget, skip this render. Never skips
-             *   more than 4 consecutive frames (min ~12fps video on NTSC).
+             *   If the schedule is over half a frame behind, skip this
+             *   render, but never more than AUTOSKIP_MAX_RUN in a row.
              *   On fast hardware: full 60fps. On slow: degrades gracefully. */
             if (frame_skip > 0 && frame_count > 0)
             {
@@ -2817,10 +2854,10 @@ int main(int argc, char *argv[])
             }
             else if (use_autoskip && frame_count > 0)
             {
-                /* Skip render if last frame was late - but never more than
-                 * 4 consecutive skips (guarantees at least 12fps video on
-                 * NTSC even when Pi 3 is fully over budget). */
-                if (skip_next_render && auto_skip_count < 4)
+                /* Skip render if the schedule is behind, but never more than
+                 * AUTOSKIP_MAX_RUN consecutive skips (a skipped frame only
+                 * saves the VDP render and the blit, ~2 ms on a Pi 3). */
+                if (skip_next_render && auto_skip_count < AUTOSKIP_MAX_RUN)
                 {
                     do_render = 0;
                     auto_skip_count++;

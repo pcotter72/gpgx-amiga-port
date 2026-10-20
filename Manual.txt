@@ -82,7 +82,8 @@ CONTENTS
   -------------
   (default)         8-bit Paula stereo, 41243 Hz
   -14bit            14-bit Paula stereo (4 DMA channels, higher quality)
-  -paulafreq=N      Paula sample rate in Hz (default 41243, max 44100)
+  -paulafreq=N      Paula sample rate in Hz (default 41243, max 44100;
+                    27710 is used when the native display is 15 kHz)
   -ahi              AHI retargetable audio (use with sound cards)
   -ahifreq=N        AHI sample rate: 22050 / 27710 / 32000 / 44100
   -paulafilter      Force the Amiga audio (LED) filter on (~7 kHz)
@@ -341,9 +342,9 @@ CONTENTS
     20.10.2026; the biggest parts are the 68000, the YM2612 and the
     Z80, then the PSG and the audio buffer copy to Chip RAM), so it
     skips frames whatever the sound settings; audio=paula and hqfm=0
-    together gain about 4%. On an A500 also set paulafreq=27710: with
-    a 15 kHz native display Paula cannot fetch 41 kHz audio (the exit
-    summary says so) and the queue overflows.
+    together gain about 4%. (On a 15 kHz native display, e.g. an
+    A500, Paula cannot fetch 41 kHz audio; the emulator detects this
+    at start and uses 27710 Hz, which it reports on the Shell.)
     On classic Amigas with Zorro RTG cards, set screendepth=16 (halves
     the video bandwidth).
     Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).

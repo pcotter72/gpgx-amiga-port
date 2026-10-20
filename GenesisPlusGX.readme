@@ -138,8 +138,10 @@ Audio
   ahi              16-bit stereo through AHI.
 
   On a 15 kHz native display, Paula cannot fetch samples faster than
-  about 28 kHz (HRM: minimum period 124). If the exit summary says
-  Paula played slower than its nominal rate, use -paulafreq=27710.
+  about 28 kHz (HRM: minimum period 124). The emulator measures the
+  native scan rate at start and uses 27710 Hz on such displays. If
+  the exit summary still says Paula played slower than its nominal
+  rate, set -paulafreq=27710 by hand.
 
   Run from a Shell to see the exit summary: frames drawn, frames over
   budget, audio frames dropped or run dry.
