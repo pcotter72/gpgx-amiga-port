@@ -581,6 +581,7 @@ int load_archive(char *filename, unsigned char *buffer, int maxsize, char *exten
 #define MAX_RAM_PATCHES 64
 static struct { uint32 offset; uint16 data; uint8 is_word; } ram_patches[MAX_RAM_PATCHES];
 static int ram_patch_count = 0;
+static int rom_patch_count = 0;   /* ROM words changed (header checksum fix) */
 
 /* Genesis Game Genie alphabet (32 chars, no I O Q U) */
 static const char gg_alpha[32] = "ABCDEFGHJKLMNPRSTVWXYZ0123456789";
@@ -649,6 +650,7 @@ static int route_patch(uint32 addr, uint16 data)
     if (!(addr & 1) && addr + 1 < (uint32)cart.romsize)
     {
         *(uint16 *)(cart.rom + addr) = data;
+        rom_patch_count++;
         return 1;
     }
     if (addr >= 0xE00000U)
@@ -851,6 +853,35 @@ static void load_cheats_cht(const char *romfile)
     }
 done:
     Close(f);
+    /* A ROM patch changes the sum the game's start-up code checks: the
+     * standard Sega routine (at $234 in Daimakaimura) adds the words from
+     * $200 to the header's ROM end address ($1A4, inclusive) and compares
+     * the result with the header checksum at $18E; on a mismatch the game
+     * stops (red screen). A real Game Genie needs the game's MASTER CODE to
+     * skip that test. Writing the new sum into the header passes the test
+     * without it (verified 2026-10-20: Daimakaimura (Japan) with only
+     * "Untouchable" RYDA-C60G enabled showed the red screen; with the
+     * master code EABA-AA3Y, a bra.s over the compare, it started). Games
+     * with a different test still need their master code. The core's
+     * header-based ROM database lookup ran at load time, before this. */
+    if (rom_patch_count > 0 && cart.romsize > 0x200)
+    {
+        uint32 end = rominfo.romend + 1;   /* header value is inclusive */
+        uint32 i;
+        uint16 old, sum = 0;
+        if (end < 0x202 || end > cart.romsize) end = cart.romsize;
+        for (i = 0x200; i + 1 < end; i += 2)
+            sum += (uint16)((cart.rom[i] << 8) | cart.rom[i + 1]);
+        old = (uint16)((cart.rom[0x18E] << 8) | cart.rom[0x18F]);
+        if (sum != old)
+        {
+            cart.rom[0x18E] = (uint8)(sum >> 8);
+            cart.rom[0x18F] = (uint8)sum;
+            printf("Cheats: ROM patched, header checksum $%04X -> $%04X so the game's\n"
+                   "        own checksum test passes without a master code\n",
+                   old, sum);
+        }
+    }
     /* Printed whenever a .cht exists, including the 0 case: confirms the file
      * was found and parsed, so "nothing happened" can be told apart from
      * "the file was never located". */

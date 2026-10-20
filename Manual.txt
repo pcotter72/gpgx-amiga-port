@@ -224,9 +224,14 @@ CONTENTS
   GameShark / AR   Hex address:data  (e.g. 009A64:0009)
   Multiple codes   Joined by + in one cheat entry
 
-  ROM patches are applied once at load time.
+  ROM patches are applied once at load time. Many games check their ROM
+  checksum at start and stop with a red screen when a patch changed it;
+  a real Game Genie needs the game's MASTER CODE for that. The emulator
+  writes the new checksum into the ROM header instead (it says so on
+  the Shell), so the master code is normally not needed. If a game
+  still refuses to start, enable its master code too.
   RAM patches are reapplied every frame (games reset RAM values each frame).
-  Master codes (lock-on protection, odd addresses) are silently skipped.
+  Codes with odd addresses are skipped (reported on the Shell).
 
 
 ===========================================================================

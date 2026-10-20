@@ -301,9 +301,9 @@ Only entries with `enable = true` are applied when the ROM loads.
 | GameShark / Action Replay | `009A64:0009` | `AAAAAA:DDDD` hex address:data |
 
 Codes are applied as:
-- **ROM patches**: even addresses within ROM range - written once at load time
+- **ROM patches**: even addresses within ROM range - written once at load time. The header checksum ($18E) is recomputed afterwards, so games that verify their ROM at start (red screen otherwise, e.g. Daimakaimura) start without their MASTER CODE; enable the master code too if a game still refuses
 - **RAM patches**: addresses in Genesis work RAM range ($E00000+) - reapplied every frame since games reset RAM values each frame
-- **Master codes**: odd addresses (lock-on protection) - silently skipped, not needed
+- **Odd addresses**: skipped and reported on the Shell
 
 ### Finding Cheat Files
 
