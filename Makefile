@@ -31,10 +31,9 @@ endif
 # Compiler: the AmigaPorts amiga6 gcc 6.5.0b (build 20260819091705) at
 # D:/amiga-gcc-amiga6, named by absolute path (switched 2026-10-18). It is a
 # native Windows binary: under _make.exe + sh.exe the recipe environment
-# loses TMP, so TMP is exported here. The older gcc 6.5.0b at D:/amiga-gcc
-# (build 250215183648) has a wrong-code peephole at -O2/-Os (merges a 16-bit
-# and a following 32-bit zero store into one clr.l); if ever building with
-# it again, add -fno-peephole2. Override with TOOLCHAIN=... on the make line.
+# loses TMP, so TMP is exported here. Override with TOOLCHAIN=... on the
+# make line. Both gcc 6.5.0b installs have a wrong-code peephole2 pass, so
+# OPTFLAGS carries -fno-peephole2 (see there).
 export TMP := D:\amiga-gcc\tmp
 TOOLCHAIN ?= D:/amiga-gcc-amiga6
 PREFIX = $(TOOLCHAIN)/bin/m68k-amigaos-
@@ -66,7 +65,14 @@ LIBC ?= nix20
 # -fno-strict-aliasing required for GPGX type-punning through pointers
 # NO -flto: lto-wrapper.exe silently fails on this host (COLLECT_GCC gets a
 # mangled /amiga-gcc/... path). Removed 2026-10-18; do not re-add.
-OPTFLAGS = -O3 -fomit-frame-pointer -fno-common -ffast-math -fno-strict-aliasing -funroll-loops
+# -fno-peephole2 (added 2026-10-20): the peephole2 pass of both gcc 6.5.0b
+# installs produces wrong code at -O2 and above. bebbo's build
+# (250215183648) merges a 16-bit zero store and a following 32-bit zero
+# store into one clr.l; the amiga6 build (20260819091705) drops the ext.l
+# that sign-extends a short array index and indexes with the full register
+# (seen in Magellan 1.33: lister toolbars not drawn). A passing test does
+# not prove the pass left the code alone, so the flag stays with both.
+OPTFLAGS = -O3 -fno-peephole2 -fomit-frame-pointer -fno-common -ffast-math -fno-strict-aliasing -funroll-loops
 
 # C standard - use gnu89 for C89 with GNU extensions (needed for inline, etc.)
 STDFLAGS = -std=gnu89
@@ -268,7 +274,7 @@ endif
 ifdef USE_ZIP
 OBJECTS    += amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o
 CFLAGS     += -DUSE_ZIP -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -DMINIZ_NO_ZLIB_APIS
-MINIZ_CFLAGS = $(CPUFLAGS) -O2 -fomit-frame-pointer -fno-strict-aliasing \
+MINIZ_CFLAGS = $(CPUFLAGS) -O2 -fno-peephole2 -fomit-frame-pointer -fno-strict-aliasing \
                -fno-common $(LIBCFLAGS) -std=gnu99 \
                -DMINIZ_NO_ARCHIVE_WRITING_APIS -DMINIZ_NO_TIME \
                -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -DMINIZ_NO_ZLIB_APIS \
@@ -365,7 +371,7 @@ debug: CFLAGS += -g -DDEBUG
 debug: $(TARGET)
 
 # Build optimized for size
-small: OPTFLAGS = -Os -fomit-frame-pointer
+small: OPTFLAGS = -Os -fno-peephole2 -fomit-frame-pointer
 small: $(TARGET)
 
 # Pi 3 PiStorm build - used to add -flto here; -flto does not work on this
