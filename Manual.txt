@@ -331,16 +331,19 @@ CONTENTS
     lines it prints when you quit.  "ran dry" counts audible gaps.
     Gaps together with frames "over budget" mean the machine is too
     slow for the settings: 8-bit Paula (audio=paula) halves the copy
-    of the audio buffers to Chip RAM (0.7 ms of a 24 ms frame on a
-    Pi 3); a lower rate (-paulafreq=27710) shrinks it too. hqfm=0 is
-    worth only 0.2 ms.
+    of the audio buffers to Chip RAM (1.4 -> 0.7 ms per frame on an
+    A500 with a Pi 3); a lower rate (-paulafreq=27710) shrinks it
+    too. hqfm=0 is worth only 0.2 ms.
     (paulamargin / ahimargin no longer do anything.)
 
   TOO SLOW / DROPPING FRAMES
-    On a Pi 3 the emulator needs about 23 ms per 16.7 ms frame with any
-    sound settings (measured 20.10.2026: 68000 6.3 ms, YM2612 5.9, Z80
-    3.8, PSG 1.1, audio buffers to Chip RAM 0.7-1.4), so expect frame
-    skipping there; audio=paula and hqfm=0 together gain about 4%.
+    An A500 with a Pi 3 needs about 18.5 ms per 16.7 ms frame (Sonic 3,
+    20.10.2026; the biggest parts are the 68000, the YM2612 and the
+    Z80, then the PSG and the audio buffer copy to Chip RAM), so it
+    skips frames whatever the sound settings; audio=paula and hqfm=0
+    together gain about 4%. On an A500 also set paulafreq=27710: with
+    a 15 kHz native display Paula cannot fetch 41 kHz audio (the exit
+    summary says so) and the queue overflows.
     On classic Amigas with Zorro RTG cards, set screendepth=16 (halves
     the video bandwidth).
     Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).
