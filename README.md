@@ -49,7 +49,12 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 
 ### Tested Configurations
 - Amiga 1200 + PiStorm32-Lite + CM4 (Emu68) - **full speed with sound**
-- Amiga 500/2000 + PiStorm + Pi 3A+ (Emu68) - **video only, use -nosound**
+  (all 40 ROMs of the test drawer, 20.10.2026)
+- Amiga 500 + PiStorm + Pi 3A+ (Emu68) - about 11% too slow with sound:
+  Sonic 3 needs 18.5 ms per 16.7 ms frame, 35% of frames drawn with audio
+  dry-outs (90 s runs, 20.10.2026); use -nosound for video only
+- Amiga 2000 + PiStorm + Emu68 (Pi 3 class, model not checked) - Sonic 3
+  17.6 ms per frame, 37% of frames drawn, picture correct (20.10.2026)
 
 ### Build Requirements
 - m68k-amigaos-gcc 6.5.0b. The release binaries are built with the AmigaPorts
@@ -485,6 +490,53 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - [ ] Sega CD support
 
 ## Changelog
+
+### v1.10 (21.10.2026)
+
+**Cheats:**
+- A ROM patch from a `.cht` file changes the sum that many games check at
+  start-up (the standard Sega routine adds the ROM words from `$200` to the
+  header's ROM end address and compares the result with the header checksum
+  at `$18E`). After the cheat file is applied the sum is recomputed and
+  written into the header, so such games run without their Game Genie master
+  code. Daimakaimura (Japan) with only "Untouchable" enabled stopped on a red
+  screen before; now it starts (the Shell reports `$7254 -> $5ABF`).
+- Codes with odd addresses are reported on the Shell instead of silently
+  skipped.
+
+**Slow machines (A500 / Pi 3 class):**
+- Paula cannot fetch samples below period 124 (about 28 kHz) on a 15 kHz
+  native display (HRM: one audio DMA slot per scan line). The emulator counts
+  the native frame's lines with `VBeamPos()` before the audio init and uses
+  27710 Hz (`paulafreq=0`) below 400 lines, reported on the Shell. On an
+  A500 + Pi 3 the default 41243 Hz dropped 627 audio frames in 90 s; now none.
+- Autoskip skips at most 2 frames in a row (`AUTOSKIP_MAX_RUN`, was 4).
+  A500 + Pi 3, Sonic 3, 90 s: 4 gave 22% of frames drawn and 2060 audio
+  dry-outs, 2 gives 35% and 2746, 1 gave 51% and 3688.
+
+**Build:**
+- Compiled with the AmigaPorts amiga6 gcc 6.5.0b (`D:/amiga-gcc-amiga6`,
+  named by absolute path in the Makefile), without `-flto` (`lto-wrapper`
+  fails on this host) and with `-fno-peephole2` on every compile line: both
+  gcc 6.5.0b builds have a wrong-code peephole2 pass (bebbo's merges a 16-bit
+  and a following 32-bit zero store into one `clr.l`; the amiga6 build drops
+  the `ext.l` of a `short` array index). Measured on the CM4 (Virtua Racing
+  attract mode, equal 66 s runs): 14155 vs 14136 us emulation per frame, no
+  change.
+- Launcher 1.6: opens muimaster.library with version 19 (the amiga6 `mui.h`
+  asks for 20, which MUI 3.8 refuses). `build.bat pi3` passes the same
+  ZIP/ASM/GL flags as the normal build (it built without ZIP support before).
+
+**Docs corrected:** `hqfm=0` saves about 1% of a Pi 3 frame (the FM-to-blip
+flush is 0.4 ms of 24 ms) and `hqpsg=0` nothing, measured with the new profile
+sections; the earlier claims were wrong. Release build on the A500 + Pi 3:
+18.4-18.6 ms emulation per 16.7 ms frame (Sonic 3, 90 s runs).
+
+**Test builds and tests:** profile sections for the audio path (blip read,
+8/14-bit conversion, Chip RAM copy, device I/O), PSG synthesis and the FM
+flush; `amiga/bench/beamtest` prints the native scan rate; `amiga/test/
+allgames.py` runs every ROM of the Amiga's drawer through the installed binary
+and keeps the exit summaries (40 ROMs, all OK on the A1200 + CM4, 20.10.2026).
 
 ### v1.9 (11.10.2026)
 

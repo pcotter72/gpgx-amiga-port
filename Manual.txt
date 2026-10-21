@@ -7,7 +7,7 @@
     |_|
 
           Sega Genesis / Mega Drive Emulator for AmigaOS 3.x
-                    PiStorm / Emu68 Edition  v1.9
+                    PiStorm / Emu68 Edition  v1.10
           ___________________________________________________
 
 

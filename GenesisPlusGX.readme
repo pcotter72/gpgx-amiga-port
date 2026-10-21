@@ -2,13 +2,13 @@ Short:    Sega Mega Drive/Genesis, SMS, GG emulator for PiStorm
 Author:   Pedro Cotter
 Uploader: Pedro Cotter
 Type:     misc/emu
-Version:  1.9
+Version:  1.10
 Requires: PiStorm/Emu68, AmigaOS 3.x or CaffeineOS, RTG (P96 or CGX)
 Architecture: m68k-amigaos
 
 
-GenesisPlusGX v1.9 for AmigaOS 3.x / CaffeineOS
-================================================
+GenesisPlusGX v1.10 for AmigaOS 3.x / CaffeineOS
+=================================================
 
 A Sega Mega Drive / Genesis, Master System, Game Gear and SG-1000
 emulator for PiStorm/Emu68 systems, built on the Genesis Plus GX
@@ -196,6 +196,22 @@ Configuration (defaults)
 
 Changes
 -------
+
+  v1.10 (21.10.2026)
+  - Cheats: when a .cht file patches ROM words, the header checksum
+    is recomputed, so games that check it at start (Daimakaimura
+    stopped on a red screen) run without their master code. Codes
+    with odd addresses are reported instead of silently skipped.
+  - On a 15 kHz native display (e.g. A500) the Paula rate falls
+    back to 27710 Hz by itself: 41243 Hz cannot be fetched there
+    and dropped 627 audio frames in 90 s on an A500 + Pi 3.
+  - Auto frame skip skips at most 2 frames in a row (was 4): on
+    an A500 + Pi 3, 35% of frames drawn instead of 22%.
+  - Built with the AmigaPorts amiga6 gcc 6.5.0b, without LTO and
+    with -fno-peephole2 (both gcc builds miscompile without it);
+    no measurable speed change on a CM4.
+  - Launcher 1.6 (new compiler; MUI 3.8 still accepted).
+  - Docs: hqfm=0 saves about 1% on a Pi 3, hqpsg=0 nothing.
 
   v1.9 (11.10.2026)
   - The video and VDP assembler loops no longer use DBF. With
