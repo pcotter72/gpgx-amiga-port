@@ -533,7 +533,9 @@ drops, 99.9-100% of frames drawn (Virtua Racing 75%, as before;
 "Untouchable" gives the same header checksum fix as 1.10 (`$7254 ->
 $5ABF`) and runs; two GameShark codes on Ms. Pac-Man are both read
 (`Cheats: 2 active (2 RAM)`), which needs the patched libnix `sscanf()` of
-the new install. Launcher 1.7 opens under MUI 3.8 and shows v1.11.
+the new install: the same objects linked with the original `__srget.o` (in
+`libm020/libnix.a`, the variant this build links) report `unknown format`
+for both codes. Launcher 1.7 opens under MUI 3.8 and shows v1.11.
 
 ### v1.10 (21.10.2026)
 
