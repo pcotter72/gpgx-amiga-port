@@ -1,0 +1,23 @@
+lea (0,a1,a2.w) index +0x0010                  got 00200010 want 00200010  ok
+lea (0,a1,a2.w) index -0x0010 (0000fff0)       got 001ffff0 want 001ffff0  ok
+lea (0,a1,a2.w) index -2 (1234fffe)            got 001ffffe want 001ffffe  ok
+bra_16 fast path, displacement +32             got 00001020 want 00001020  ok
+  PC and prefetch address advanced             got 00000001 want 00000001  ok
+bra_16 fast path, displacement -16             got 00000ff0 want 00000ff0  ok
+  PC and prefetch address advanced             got 00000001 want 00000001  ok
+pea (0,a1,a0.w) index +0x0010                  got 00200010 want 00200010  ok
+pea (0,a1,a0.w) index -0x0010 (0000fff0)       got 001ffff0 want 001ffff0  ok
+cmpa.l 4(a0),a1 equal -> seq ff                got 000000ff want 000000ff  ok
+cmpa.l 4(a0),a1 not equal -> seq 00            got 00000000 want 00000000  ok
+move.w a0,(0,a1,d0.l)                          got 00005678 want 00005678  ok
+move.w a0,(0,a1,d0.l) other value              got 00008001 want 00008001  ok
+moveq #20/muls/move.b, byte 7f                 got 0000007f want 0000007f  ok
+moveq #20/muls/move.b, byte 80                 got 00000080 want 00000080  ok
+moveq #20/muls/move.b, byte ff                 got 000000ff want 000000ff  ok
+moveq #20/muls/move.b, byte 01                 got 00000001 want 00000001  ok
+moveq #20,d0 / move.b (a0),d0, byte c3         got 000000c3 want 000000c3  ok
+moveq #-1,d0 / move.b (a0),d0, byte 3c         got ffffff3c want ffffff3c  ok
+add.b flow: ff + 01 -> 0x100 (carry)           got 00000100 want 00000100  ok
+add.b flow: 80 + 80 -> 0x100 (carry)           got 00000100 want 00000100  ok
+add.b flow: 7f + 01 -> 0x080                   got 00000080 want 00000080  ok
+emutest: 0 wrong

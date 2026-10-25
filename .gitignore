@@ -7,6 +7,9 @@ GenesisPlusGX-Config
 GenesisPlusGX_*
 *.stripped
 .buildstamp
+amiga/bench/beamtest
+amiga/bench/dispbench
+amiga/bench/emutest
 
 # Game ROMs - commercial software, never commit these
 roms/

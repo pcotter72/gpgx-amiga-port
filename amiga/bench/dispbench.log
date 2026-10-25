@@ -1,0 +1,6 @@
+dispbench: 4000000 handlers per test, counter 54000000 Hz
+direct bsr (baseline)                   5.91 ns      5.00 m68k      10.64 ARM insns per handler
+table jsr/rts, 1 target                43.89 ns     12.00 m68k      79.00 ARM insns per handler
+table jsr/rts, 256 targets             61.34 ns     12.00 m68k     110.41 ARM insns per handler
+threaded jmp, 1 target                 14.00 ns     11.00 m68k      25.21 ARM insns per handler
+threaded jmp, 256 targets              43.80 ns     11.00 m68k      78.84 ARM insns per handler
