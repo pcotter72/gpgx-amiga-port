@@ -508,8 +508,10 @@ in v1.10, each by one cartridge (`core/cart_hw/md_cart.c`):
 - `tekken_regs_w()`, used by Tekken 3 Special (pirate): the protection
   register never took a 1 written to its data input.
 
-Neither cartridge was available for a test, so these two fixes are checked
-from the disassembly only. The other two sites could not be reached:
+Neither cartridge was at hand, so `amiga/test/maptest/` builds two 64 KB test
+ROMs of our own code that match these database entries and check each
+mapper's effect (green or red screen): both are red with v1.10 and green with
+v1.11 on an A1200 with a PiStorm (Emu68, CM4). The other two sites could not be reached:
 `gen_bankswitch_w()` (`core/genesis.c`, boot ROM to cartridge switch) only
 runs with a Mega Drive boot ROM, which this port never loads (`config.bios`
 is 0), and miniz's `mz_zip_validate_file()` is never called. The 1.11 binary
