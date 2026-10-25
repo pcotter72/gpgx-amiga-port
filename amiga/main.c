@@ -10,8 +10,8 @@
  ****************************************************************************/
 
 /* Version info */
-#define GPGX_VERSION  "1.10"
-#define GPGX_DATE     "21.10.2026"
+#define GPGX_VERSION  "1.11"
+#define GPGX_DATE     "25.10.2026"
 #define GPGX_AUTHOR   "Pedro Cotter"
 
 /* Standard AmigaOS version string - readable by C:Version command */
@@ -20,6 +20,11 @@ static const char amiga_version[] = "$VER: GenesisPlusGX " GPGX_VERSION " (" GPG
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+/* Before shared.h: its typedef of uint must come before m68k.h's
+   "#define uint unsigned int". The 2026-10-24 libc headers no longer pull
+   it in through stdio.h/stdlib.h, so miniz.h's <time.h> brought it in
+   after the macro ("duplicate 'unsigned'"). */
+#include <sys/types.h>
 
 /* AmigaOS includes */
 #include <exec/exec.h>

@@ -491,6 +491,48 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 
 ## Changelog
 
+### v1.11 (25.10.2026)
+
+Rebuild with the fixed amiga6 gcc 6.5.0b (`D:/amiga-gcc-amiga6`, toolchain
+`AmigaDev eac7a11`, AmigaPorts gcc 878d2cfb8 with PRs 125 and 128). No change
+to the emulation code.
+
+**Wrong-bit tests fixed:** the gcc 6.5.0b that built v1.10 turned a C test
+like `if (data & 1)` on a value kept in a stack slot into `btst #-24,(4,sp)`.
+A `btst` on memory takes its bit number modulo 8, so bit 24 was tested
+instead of bit 0. The data of a byte or word write never has bit 24 set, so
+these tests always took the "bit clear" path. Two of them could be reached
+in v1.10, each by one cartridge (`core/cart_hw/md_cart.c`):
+- `mapper_seganet_w()`, used by Game no Kanzume Otokuyou: the cartridge's
+  ROM write protection was never switched on.
+- `tekken_regs_w()`, used by Tekken 3 Special (pirate): the protection
+  register never took a 1 written to its data input.
+
+Neither cartridge was available for a test, so these two fixes are checked
+from the disassembly only. The other two sites could not be reached:
+`gen_bankswitch_w()` (`core/genesis.c`, boot ROM to cartridge switch) only
+runs with a Mega Drive boot ROM, which this port never loads (`config.bios`
+is 0), and miniz's `mz_zip_validate_file()` is never called. The 1.11 binary
+has no negative `btst` left (`objdump -d -m m68k:68040`).
+
+**Build:** the new install's libc headers no longer include `<sys/types.h>`
+from `<stdio.h>`/`<stdlib.h>`. It then arrived through `miniz.h`'s
+`<time.h>` after Musashi's `#define uint unsigned int`, and its `typedef
+unsigned int uint;` failed to compile. `amiga/main.c` now includes
+`<sys/types.h>` before `shared.h`, the order the old headers gave.
+`-fno-peephole2` stays on every compile line.
+
+**Launcher 1.7:** rebuilt with the same compiler; About text shows v1.11.
+
+**Tested** on an A1200 with a PiStorm (Emu68, CM4), CaffeineOS: all 40
+ROMs of `amiga/test/allgames.py` start with a correct picture, 0 audio
+drops, 99.9-100% of frames drawn (Virtua Racing 75%, as before;
+`amiga/test/allgames_2026-10-25.txt`). Cheats: Daimakaimura with
+"Untouchable" gives the same header checksum fix as 1.10 (`$7254 ->
+$5ABF`) and runs; two GameShark codes on Ms. Pac-Man are both read
+(`Cheats: 2 active (2 RAM)`), which needs the patched libnix `sscanf()` of
+the new install. Launcher 1.7 opens under MUI 3.8 and shows v1.11.
+
 ### v1.10 (21.10.2026)
 
 **Cheats:**

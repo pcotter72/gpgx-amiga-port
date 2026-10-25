@@ -31,7 +31,7 @@
 #include <stdlib.h>
 
 static const char version[] =
-    "$VER: GenesisPlusGX-Launcher 1.6 (21.10.2026) by Pedro Cotter";
+    "$VER: GenesisPlusGX-Launcher 1.7 (25.10.2026) by Pedro Cotter";
 
 /* ---- MUI library ---- */
 struct Library *MUIMasterBase = NULL;
@@ -1888,7 +1888,7 @@ int main(void)
             case ID_ABOUT:
                 MUI_Request(d.app, d.window, 0,
                             STR("About Genesis Plus GX"), STR("OK"),
-                            STR("Genesis Plus GX v1.10\n"
+                            STR("Genesis Plus GX v1.11\n"
                                 "AmigaOS/CaffeineOS port\n\n"
                                 "Port by Pedro Cotter (2026)\n\n"
                                 "Based on Genesis Plus GX\n"

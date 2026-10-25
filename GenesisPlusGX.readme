@@ -2,12 +2,12 @@ Short:    Sega Mega Drive/Genesis, SMS, GG emulator for PiStorm
 Author:   Pedro Cotter
 Uploader: Pedro Cotter
 Type:     misc/emu
-Version:  1.10
+Version:  1.11
 Requires: PiStorm/Emu68, AmigaOS 3.x or CaffeineOS, RTG (P96 or CGX)
 Architecture: m68k-amigaos
 
 
-GenesisPlusGX v1.10 for AmigaOS 3.x / CaffeineOS
+GenesisPlusGX v1.11 for AmigaOS 3.x / CaffeineOS
 =================================================
 
 A Sega Mega Drive / Genesis, Master System, Game Gear and SG-1000
@@ -196,6 +196,15 @@ Configuration (defaults)
 
 Changes
 -------
+
+  v1.11 (25.10.2026)
+  - Rebuilt with the fixed amiga6 gcc 6.5.0b. The compiler that
+    built 1.10 made some bit tests check bit 24 instead of bit 0.
+    Two cartridges reached them: Game no Kanzume Otokuyou (ROM
+    write protection never on) and the pirate Tekken 3 Special
+    (protection register). Other games were not affected. No
+    other code change.
+  - Launcher 1.7 (same compiler).
 
   v1.10 (21.10.2026)
   - Cheats: when a .cht file patches ROM words, the header checksum
