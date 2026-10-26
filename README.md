@@ -36,11 +36,14 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 ## Requirements
 
 ### Target System
-- AmigaOS 3.0 or higher (3.2 recommended)
+- AmigaOS 3.0 or higher (Intuition and graphics.library V39)
+- AmigaOS 3.1 or higher for CD32 gamepads, which need lowlevel.library V40.
+  Without it the emulator still runs, with keyboard input only.
 - 68030 CPU minimum (PiStorm/Emu68 recommended)
 - 8MB+ Fast RAM
 - CyberGraphX or Picasso96 RTG system
 - Paula chip (for 8-bit/14-bit audio) or AHI (for sound card audio)
+- MUI 3.8 or higher for the launcher only (muimaster.library 19)
 
 ### Minimum Hardware
 - **Raspberry Pi CM4 or Pi 4** with PiStorm/PiStorm32 (recommended)
