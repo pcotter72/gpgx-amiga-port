@@ -41,7 +41,7 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - AmigaOS 3.0 or higher (Intuition and graphics.library V39)
 - AmigaOS 3.1 or higher for CD32 gamepads, which need lowlevel.library V40.
   Without it the emulator still runs, with keyboard input only.
-- 68030 CPU minimum (PiStorm/Emu68 recommended)
+- PiStorm with Emu68 (the binaries are 68040 code with FPU)
 - 8MB+ Fast RAM
 - CyberGraphX or Picasso96 RTG system
 - Paula chip (for 8-bit/14-bit audio) or AHI (for sound card audio)
@@ -70,56 +70,42 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 
 ## Building
 
-### Quick Start (Windows CMD)
+The release binaries are built on Windows with `build.bat`, run from
+PowerShell, for the 68040 with libnix. That is the only build configuration
+that has been used and tested; the Makefile and `build.bat` accept other CPU
+targets and C libraries, but those have never been tested.
 
 ```cmd
-build.bat              &:: Build for 68030 + all ASM optimizations (recommended)
-build.bat 68040        &:: Build for 68040 with FPU
-build.bat pi3          &:: Build for Pi 3 PiStorm (68030)
-build.bat launcher     &:: Build MUI launcher only
+build.bat              &:: Emulator: 68040, all ASM optimizations, ZIP support
+build.bat nogl         &:: The same without PiStorm3D GPU output
+build.bat launcher     &:: MUI launcher
 build.bat clean        &:: Clean build files
 ```
 
-`build.bat` always passes `USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1`.
-
-### Full Build with ASM Optimizations (Recommended)
+`build.bat` runs this make command:
 
 ```bash
-make clean
-make USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
+make all CPU=68040 LIBC=nix20 USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
 ```
 
+and adds `USE_MINIGL=1` when the PiStorm3D SDK is found in
+`../PiStorm3D/PiStorm3D/SDK`.
+
 > **Note:** Incremental builds must repeat the same flag set - `make` cannot
-> detect `-D` flag changes in existing object files.
+> detect `-D` flag changes in existing object files. `build.bat` cleans by
+> itself when its options change.
 
 ### Build Options
 
 | Option | Description |
 |--------|-------------|
-| `CPU=68030` | Default, Emu68 compatible |
-| `CPU=68040` | 68040 with hardware FPU |
-| `CPU=68060` | 68060 with hardware FPU |
-| `CPU=68080` | Apollo/Vampire 68080 |
+| `CPU=68040` | 68040 code with FPU (`-m68040 -mhard-float -mschulz`) |
+| `LIBC=nix20` | libnix runtime |
 | `USE_ASM_AUDIO=1` | Assembly-optimized Paula audio conversion |
 | `USE_ASM_VIDEO=1` | Assembly-optimized RGB565-to-RGBA blitters |
 | `USE_ASM_BLIP=1` | Assembly-optimized blip_buf resampling |
 | `USE_ZIP=1` | ZIP ROM support (miniz, in-memory extraction) |
 | `USE_MINIGL=1` | PiStorm3D GPU output (`-gl`). `build.bat` adds it automatically when `../PiStorm3D/PiStorm3D/SDK` exists; `build.bat nogl` leaves it out |
-| `LIBC=nix20` | libnix runtime (default) |
-| `LIBC=clib2` | clib2 runtime |
-| `debug` | Build with debug symbols |
-| `small` | Size-optimized build |
-
-### Linux / macOS
-
-```bash
-git clone https://github.com/bebbo/amiga-gcc
-cd amiga-gcc && make update && sudo make all PREFIX=/opt/amiga
-export PATH=/opt/amiga/bin:$PATH
-
-cd /path/to/gpgx-amiga
-make USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
-```
 
 ## Usage
 
