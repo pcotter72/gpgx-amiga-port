@@ -29,7 +29,7 @@ echo Compiler found:
 m68k-amigaos-gcc --version 2>&1 | findstr /n "^" | findstr "^1:"
 echo.
 
-REM Parse arguments
+REM The port is built and tested for the 68040 with libnix only.
 set CPU=68040
 set LIBC=nix20
 set TARGET=all
@@ -42,15 +42,10 @@ if exist "%~dp0..\PiStorm3D\PiStorm3D\SDK\lib\libminigl.a" set "MINIGL_FLAG=USE_
 
 :parse_args
 if "%1"=="" goto build
-if "%1"=="68030" set "CPU=68030" & shift & goto parse_args
-if "%1"=="68040" set "CPU=68040" & shift & goto parse_args
-if "%1"=="68060" set "CPU=68060" & shift & goto parse_args
-if "%1"=="68080" set "CPU=68080" & shift & goto parse_args
-if "%1"=="pi3"   set "TARGET=pi3" & shift & goto parse_args
+if "%1"=="68040" shift & goto parse_args
 if "%1"=="clean" set "TARGET=clean" & shift & goto parse_args
 if "%1"=="debug" set "TARGET=debug" & shift & goto parse_args
 if "%1"=="info"  set "TARGET=info" & shift & goto parse_args
-if "%1"=="clib2"    set "LIBC=clib2" & shift & goto parse_args
 if "%1"=="launcher" set "TARGET=launcher" & shift & goto parse_args
 if "%1"=="zip"   set "USE_ZIP_FLAG=USE_ZIP=1" & shift & goto parse_args
 if "%1"=="gl"    set "MINIGL_FLAG=USE_MINIGL=1" & shift & goto parse_args
@@ -58,24 +53,17 @@ if "%1"=="nogl"  set "MINIGL_FLAG=" & shift & goto parse_args
 if "%1"=="help"  goto help
 if "%1"=="-h"    goto help
 if "%1"=="/?"    goto help
-shift
-goto parse_args
+echo ERROR: unknown option "%1"
+echo Run "build.bat help" for the options.
+echo.
+pause
+exit /b 1
 
 :help
 echo Usage: build.bat [options]
 echo.
-echo CPU options:
-echo   68040    - Build for 68040 with FPU (default)
-echo   68030    - Build for 68030
-echo   68060    - Build for 68060 with FPU
-echo   68080    - Build for Vampire/Apollo 68080
-echo.
-echo Platform presets:
-echo   pi3      - Optimised build for Pi 3 PiStorm (all ASM enabled)
-echo              Note: Pi 3 may not achieve full speed with sound
-echo.
-echo Library options:
-echo   clib2    - Use clib2 instead of libnix
+echo Builds for the 68040 with FPU and libnix, the only configuration this
+echo port is built and tested with.
 echo.
 echo Commands:
 echo   clean    - Remove build files
@@ -88,10 +76,8 @@ echo   nogl     - Leave GPU output out
 echo   help     - Show this help
 echo.
 echo Examples:
-echo   build.bat              - Build for 68040 with libnix
-echo   build.bat pi3          - Pi 3 PiStorm optimised build
-echo   build.bat 68060        - Build for 68060
-echo   build.bat 68060 clib2  - Build for 68060 with clib2
+echo   build.bat              - Build the emulator
+echo   build.bat nogl         - Build the emulator without GPU output
 echo   build.bat launcher     - Build MUI game launcher
 echo   build.bat clean        - Clean build files
 echo.
@@ -125,26 +111,6 @@ if "%TARGET%"=="clean" (
 
 if "%TARGET%"=="info" (
     make info CPU=%CPU% LIBC=%LIBC% USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 SHELL=sh.exe
-    goto done
-)
-
-if "%TARGET%"=="pi3" (
-    echo Building Pi 3 PiStorm optimised binary...
-    echo CPU: 68030 with all ASM optimisations
-    echo.
-    set "BUILD_STAMP=pi3 68030 %LIBC% %USE_ZIP_FLAG% %MINIGL_FLAG%"
-    call :check_stamp
-    if exist GenesisPlusGX del GenesisPlusGX
-    make pi3 CPU=68030 LIBC=%LIBC% USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 %USE_ZIP_FLAG% %MINIGL_FLAG% SHELL=sh.exe
-    if not exist GenesisPlusGX goto build_failed
-    echo.
-    echo ========================================
-    echo Pi 3 BUILD SUCCESSFUL!
-    echo ========================================
-    echo Output: GenesisPlusGX
-    echo.
-    echo NOTE: Pi 3 may not achieve full speed with sound enabled
-    echo.
     goto done
 )
 

@@ -3,20 +3,19 @@
 #  Genesis Plus GX - AmigaOS/CaffeineOS Makefile
 #  For bebbo's amiga-gcc cross-compiler (GCC 6.5+)
 #
-#  Target: m68k-amigaos (68030+ / PiStorm/Emu68)
+#  Target: m68k-amigaos, 68040 code with FPU (PiStorm/Emu68)
 #
 #  Compiler: https://github.com/bebbo/amiga-gcc
 #            Windows installer: http://franke.ms/download/setup-amiga-gcc.exe
 #
-#  Usage:
-#    make              - Build for 68030 (Emu68 compatible)
-#    make CPU=68040    - Build for 68040
-#    make CPU=68060    - Build for 68060
-#    make CPU=68080    - Build for Apollo/Vampire 68080
+#  Usage (build.bat runs the first line, plus USE_MINIGL=1 with the SDK):
+#    make all USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
+#    make launcher     - Build the MUI launcher
 #    make clean        - Clean build files
-#    make LIBC=clib2   - Use clib2 instead of libnix
 #    make USE_ASM_SVP=1   - Also enable assembly-optimized SVP (Virtua Racing)
-#    make pi3          - Build for Pi 3 PiStorm (68030; no LTO, see OPTFLAGS)
+#
+#  The port is built and tested for the 68040 with libnix only; other CPU
+#  targets and C libraries were never tested and are not offered.
 #
 #  Windows: If "/bin/sh not found" errors occur, the shell fix below handles it.
 #
@@ -52,11 +51,17 @@ TARGET = GenesisPlusGX
 # would build only miniz.o and stop).
 .DEFAULT_GOAL := all
 
-# CPU type (default 68040)
+# CPU type and C library: 68040 and libnix (nix20) are the only tested
+# configuration. The variables remain so that a command line asking for
+# anything else stops with an error instead of building something untested.
 CPU ?= 68040
-
-# C library choice: nix20 (libnix, default), clib2, or ixemul
 LIBC ?= nix20
+ifneq ($(CPU),68040)
+  $(error CPU=$(CPU) is not supported: this port is built and tested for CPU=68040 only)
+endif
+ifneq ($(LIBC),nix20)
+  $(error LIBC=$(LIBC) is not supported: this port is built and tested with libnix (LIBC=nix20) only)
+endif
 
 # Optimization flags for GCC 6.5+
 # -O3 is safe with bebbo's GCC
@@ -77,28 +82,11 @@ OPTFLAGS = -O3 -fno-peephole2 -fomit-frame-pointer -fno-common -ffast-math -fno-
 # C standard - use gnu89 for C89 with GNU extensions (needed for inline, etc.)
 STDFLAGS = -std=gnu89
 
-# CPU-specific flags
-ifeq ($(CPU),68080)
-  # Apollo/Vampire 68080
-  CPUFLAGS = -m68080 -mhard-float -mschulz
-else ifeq ($(CPU),68060)
-  CPUFLAGS = -m68060 -mhard-float -mschulz
-else ifeq ($(CPU),68040)
-  CPUFLAGS = -m68040 -mhard-float -mschulz
-else
-  # 68030 - Emu68 emulates the 68882 FPU, so use hard float
-  CPUFLAGS = -m68030 -mhard-float -mschulz
-endif
+# CPU flags: 68040 with FPU. -mschulz avoids fmovem.x, which is slow on Emu68.
+CPUFLAGS = -m68040 -mhard-float -mschulz
 
-# C library selection
-ifeq ($(LIBC),clib2)
-  LIBCFLAGS = -mcrt=clib2
-else ifeq ($(LIBC),ixemul)
-  LIBCFLAGS = -mcrt=ixemul
-else
-  # Default: libnix (noixemul)
-  LIBCFLAGS = -noixemul
-endif
+# C library: libnix
+LIBCFLAGS = -noixemul
 
 # Warning flags
 WARNFLAGS = -Wall -Wno-unused-variable -Wno-unused-function \
@@ -373,16 +361,6 @@ debug: $(TARGET)
 # Build optimized for size
 small: OPTFLAGS = -Os -fno-peephole2 -fomit-frame-pointer
 small: $(TARGET)
-
-# Pi 3 PiStorm build - used to add -flto here; -flto does not work on this
-# host (see OPTFLAGS), so this target is now the same build as the default.
-# Note: Pi 3 is too slow for full-speed emulation with sound.
-# Recommended: Pi CM4 or Pi 4 for full speed with sound.
-pi3: $(TARGET)
-	@echo ""
-	@echo "Pi 3 build complete."
-	@echo "Note: Pi 3 may not achieve full speed with sound enabled."
-	@echo "Recommended: Raspberry Pi CM4 or Pi 4 for best results."
 
 # Show configuration
 info:
