@@ -354,14 +354,6 @@ depend:
 # Additional targets
 #############################################################################
 
-# Build with debug info
-debug: CFLAGS += -g -DDEBUG
-debug: $(TARGET)
-
-# Build optimized for size
-small: OPTFLAGS = -Os -fno-peephole2 -fomit-frame-pointer
-small: $(TARGET)
-
 # Show configuration
 info:
 	@echo "Genesis Plus GX Amiga Build Configuration"

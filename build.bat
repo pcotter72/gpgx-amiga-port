@@ -44,7 +44,6 @@ if exist "%~dp0..\PiStorm3D\PiStorm3D\SDK\lib\libminigl.a" set "MINIGL_FLAG=USE_
 if "%1"=="" goto build
 if "%1"=="68040" shift & goto parse_args
 if "%1"=="clean" set "TARGET=clean" & shift & goto parse_args
-if "%1"=="debug" set "TARGET=debug" & shift & goto parse_args
 if "%1"=="info"  set "TARGET=info" & shift & goto parse_args
 if "%1"=="launcher" set "TARGET=launcher" & shift & goto parse_args
 if "%1"=="zip"   set "USE_ZIP_FLAG=USE_ZIP=1" & shift & goto parse_args
@@ -68,7 +67,6 @@ echo.
 echo Commands:
 echo   clean    - Remove build files
 echo   launcher - Build MUI game launcher + config GUI
-echo   debug    - Build with debug symbols
 echo   info     - Show build configuration
 echo   zip      - Enable ZIP ROM support (requires amiga/miniz.h + miniz.c)
 echo   gl       - Build in PiStorm3D GPU output (default if ..\PiStorm3D SDK exists)
