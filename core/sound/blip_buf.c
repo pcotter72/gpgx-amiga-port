@@ -1,3 +1,10 @@
+/* Modified for the AmigaOS port of Genesis Plus GX by Pedro Cotter:
+   blip_read_samples() can call the 68k assembly inner loop
+   blip_read_samples_inner_asm() (amiga/blip_asm.s) when USE_ASM_BLIP is
+   defined, and its BLIP_MONO / stereo #if blocks were rearranged for that.
+   Changed between 2026-01-14 (upstream base, commit 9975ae2) and
+   2026-10-09 (first commit of the port's repository). */
+
 /* blip_buf $vers. http://www.slack.net/~ant/                       */
 
 /* Modified for Genesis Plus GX by EkeEke                           */

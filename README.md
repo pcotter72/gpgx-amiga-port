@@ -530,9 +530,8 @@ unsigned int uint;` failed to compile. `amiga/main.c` now includes
 **Launcher 1.7:** rebuilt with the same compiler; About text shows v1.11.
 
 **Tested** on an A1200 with a PiStorm (Emu68, CM4), CaffeineOS: all 40
-ROMs of `amiga/test/allgames.py` start with a correct picture, 0 audio
-drops, 99.9-100% of frames drawn (Virtua Racing 75%, as before;
-`amiga/test/allgames_2026-10-25.txt`). Cheats: Daimakaimura with
+ROMs run by `amiga/test/allgames.py` start with a correct picture, 0 audio
+drops, 99.9-100% of frames drawn (Virtua Racing 75%, as before). Cheats: Daimakaimura with
 "Untouchable" gives the same header checksum fix as 1.10 (`$7254 ->
 $5ABF`) and runs; two GameShark codes on Ms. Pac-Man are both read
 (`Cheats: 2 active (2 RAM)`), which needs the patched libnix `sscanf()` of
@@ -632,7 +631,7 @@ instruction checks).
 **Other:**
 - The startup line names the screen pixel format (e.g. `RGB16PC`).
 - Test builds: `GPGX_PROFILE=1` (frame profile from Emu68's counters),
-  `SVP_VERIFY=1`; see CLAUDE.md.
+  `SVP_VERIFY=1`.
 
 ### v1.7 (09.10.2026)
 

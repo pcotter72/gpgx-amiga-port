@@ -1,3 +1,7 @@
+/* This file has been changed for the AmigaOS port of Genesis Plus GX by
+   Pedro Cotter, 2026-10-11: an instruction counter for profile test builds
+   (#ifdef GPGX_PROFILE, marked "Amiga port") in the execute loop. */
+
 /*****************************************************************************
  *
  *   z80.c

@@ -15,8 +15,9 @@ amiga/bench/emutest
 roms/
 Roms/
 
-# Machine-local Claude Code permission state
-.claude/settings.local.json
+# Claude Code: project instructions and machine-local state stay local
+CLAUDE.md
+.claude/
 
 # Runtime data created on the Amiga side
 States/
@@ -24,3 +25,9 @@ Cheats/
 *.cfg
 *.srm
 *.gsx
+
+# Test sweep (amiga/test/allgames.py): local ROM list, results, screenshots
+amiga/test/roms.txt
+amiga/test/allgames_*.txt
+amiga/test/ag_*
+__pycache__/

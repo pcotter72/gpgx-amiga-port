@@ -1,3 +1,8 @@
+/* Modified for the AmigaOS port of Genesis Plus GX by Pedro Cotter:
+   the local variables bb, gg, rr, y, i, q in the palette loop are double
+   instead of float. Changed between 2026-01-14 (upstream base, commit
+   9975ae2) and 2026-10-09 (first commit of the port's repository). */
+
 /* md_ntsc 0.1.2. http://www.slack.net/~ant/ */
 
 /* Modified for use with Genesis Plus GX -- EkeEke */
