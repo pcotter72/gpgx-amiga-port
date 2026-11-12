@@ -72,8 +72,8 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 
 The release binaries are built on Windows with `build.bat`, run from
 PowerShell, for the 68040 with libnix. That is the only build configuration
-that has been used and tested; the Makefile and `build.bat` accept other CPU
-targets and C libraries, but those have never been tested.
+that has been used and tested, and the only one the Makefile and `build.bat`
+offer.
 
 ```cmd
 build.bat              &:: Emulator: 68040, all ASM optimizations, ZIP support
