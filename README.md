@@ -51,6 +51,7 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - **Raspberry Pi CM4 or Pi 4** with PiStorm/PiStorm32 (recommended)
 - Amiga 500/2000 with PiStorm + Pi 3 series: video only (no sound),
   the Pi 3 is too slow to emulate the Genesis sound chips at full speed.
+  Overclocking the Pi 3 improves the speed.
 
 ### Tested Configurations
 - Amiga 1200 + PiStorm32-Lite + CM4 (Emu68) - **full speed with sound**
