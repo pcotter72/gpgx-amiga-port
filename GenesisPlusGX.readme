@@ -21,6 +21,7 @@ Requirements
 
 - PiStorm with Emu68
 - AmigaOS 3.x or CaffeineOS
+  (optimized for CaffeineOS 9318 and only tested there)
 - RTG: Picasso96 or CyberGraphX
 - Chip RAM for the Paula audio buffers
 - Optional: MUI 3.8 for the launcher

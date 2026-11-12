@@ -2,6 +2,8 @@
 
 A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically targeting PiStorm/Emu68 accelerated Amigas running CaffeineOS.
 
+**The port is optimized for CaffeineOS 9318 and has only been tested there.** Other AmigaOS 3.x systems may work, but are untested.
+
 ## Features
 
 - Sega Genesis / Mega Drive emulation at full 60fps (NTSC) / 50fps (PAL)
