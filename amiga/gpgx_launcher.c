@@ -74,7 +74,7 @@ struct Library *LowLevelBase  = NULL;
 /* ---- Return IDs ---- */
 enum { ID_SAVE = 1, ID_CANCEL, ID_LAUNCH, ID_SCAN, ID_FILTER, ID_SORT, ID_ABOUT,
        ID_ROMSEL, ID_CHEAT_TOGGLE, ID_CHEAT_ALL, ID_CHEAT_NONE,
-       ID_CHEAT_SAVE, ID_CHEAT_RELOAD };
+       ID_CHEAT_SAVE, ID_CHEAT_RELOAD, ID_GLOUT };
 
 /* ---- System types ---- */
 #define SYSTEM_GENESIS 0
@@ -139,7 +139,7 @@ static const int glsize_w[GLSIZE_FIXED] = { 640, 800, 1024, 1280, 1920 };
 static const int glsize_h[GLSIZE_FIXED] = { 480, 600, 768, 720, 1080 };
 static char glsize_custom[32];
 
-/* minigl.library presence, checked once at startup */
+/* ogles2.library presence, checked once at startup */
 static int  gl_lib_ok = 0;
 static char gl_status[96];
 
@@ -209,7 +209,7 @@ typedef struct {
     int fmvol, psgvol;
     int paulaboost, paulastereo, paulafilter, ahiboost;
     int hqfm, hqpsg, screendepth;
-    int gl_out, gl_effect, gl_w, gl_h;   /* GPU output (PiStorm3D) */
+    int gl_out, gl_effect, gl_w, gl_h;   /* GPU output (ogles2.library) */
     int cheats;         /* preserved so saving the config does not drop the key */
     int p1_a,p1_b,p1_c,p1_x,p1_y,p1_z,p1_start,p1_mode;
     int p2_a,p2_b,p2_c,p2_x,p2_y,p2_z,p2_start,p2_mode;
@@ -296,6 +296,8 @@ static void config_load(Config *c)
         else if (!strcmp(key,"hqpsg"))       c->hqpsg        = atoi(value)?1:0;
         else if (!strcmp(key,"screendepth")) c->screendepth  = atoi(value);
         else if (!strcmp(key,"glout"))       c->gl_out       = atoi(value)?1:0;
+        /* glesout: the ogles2 key of the test builds of 17.11.2026 */
+        else if (!strcmp(key,"glesout"))   { if (atoi(value)) c->gl_out = 1; }
         else if (!strcmp(key,"gleffect"))    c->gl_effect    = atoi(value);
         else if (!strcmp(key,"glsize")) {
             int w = 0, h = 0;
@@ -389,9 +391,9 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     WR(";\n; screendepth: 32 (PiStorm/VideoCore fast path) or 16 (half blit bandwidth,\n");
     WR(";   recommended for classic Amigas with Zorro RTG cards)\n");
     snprintf(line,sizeof(line),"screendepth=%d\n",c->screendepth);       WR(line);
-    WR("; glout: 1 = GPU output through PiStorm3D minigl.library 29.1\n");
-    WR(";   (Pi 4/CM4 only). Better scaling and effects, but costs ~6 ms\n");
-    WR(";   of CPU per drawn frame. Forces vsync off. Falls back to the\n");
+    WR("; glout: 1 = GPU output through ogles2.library (OpenGL ES 2.0,\n");
+    WR(";   Pi 4/CM4 only). Better scaling and effects, costs ~2.4 ms of\n");
+    WR(";   CPU per drawn frame. VSync works with it. Falls back to the\n");
     WR(";   normal display when the library is missing.\n");
     snprintf(line,sizeof(line),"glout=%d\n",c->gl_out);                   WR(line);
     WR("; gleffect: 0=sharp 1=smooth 2=scanlines 3=composite blend\n");
@@ -400,7 +402,7 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     snprintf(line,sizeof(line),"glsize=%dx%d\n",c->gl_w,c->gl_h);         WR(line);
     WR("; scanlines: 0=off 1=subtle 2=medium 3=strong (1-3 open 2x screen)\n");
     snprintf(line,sizeof(line),"scanlines=%d\n",c->scanlines);           WR(line);
-    WR("; vsync: 1=double-buffer tear-free (auto skip disabled when vsync=1)\n");
+    WR("; vsync: 1=show frames at the vertical blank (a late frame is drawn at once)\n");
     snprintf(line,sizeof(line),"vsync=%d\n",c->vsync);                   WR(line);
     WR("; frameskip: 0=off/auto 1=skip1/2 2=skip2/3 3=skip3/4\n");
     snprintf(line,sizeof(line),"frameskip=%d\n",c->frameskip);           WR(line);
@@ -1020,6 +1022,8 @@ struct AppData {
     Object *bt_save, *bt_cancel, *bt_about;
 };
 
+static void gpu_update_state(struct AppData *d);
+
 /* One entry per RegisterGroup child, in the same order as the children. */
 static const char *page_titles[] =
     { "Games","Video","Audio","Cheats","Player 1","Player 2",NULL };
@@ -1129,7 +1133,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
 
                         Child, HGroup, GroupFrame,
                             Child, d->cm_vsync = CheckMark(c->vsync),
-                            Child, Label1(STR("VSync  (tear-free, disables Auto Skip)")),
+                            Child, Label1(STR("VSync  (frames wait for the vertical blank)")),
                             Child, HSpace(0),
                         End,
 
@@ -1155,10 +1159,10 @@ static Object *create_gui(struct AppData *d, const Config *c)
                         End,
 
                         Child, VGroup, GroupFrame,
-                            MUIA_FrameTitle, STR("GPU Output  (PiStorm3D, Pi 4/CM4)"),
+                            MUIA_FrameTitle, STR("GPU Output  (Pi 4/CM4)"),
                             Child, HGroup,
                                 Child, d->cm_glout = CheckMark(c->gl_out),
-                                Child, Label1(STR("Draw through the V3D GPU  (costs ~6 ms CPU per frame)")),
+                                Child, Label1(STR("Draw through the Pi's GPU  (ogles2.library, ~2.4 ms CPU per frame)")),
                                 Child, HSpace(0),
                             End,
                             Child, ColGroup(2),
@@ -1455,32 +1459,15 @@ static Object *create_gui(struct AppData *d, const Config *c)
     DoMethod(d->str_filter, MUIM_Notify, MUIA_String_Acknowledge, MUIV_EveryTime,
              d->app, 2, MUIM_Application_ReturnID, ID_FILTER);
 
-    /* GPU output. With minigl.library present the checkmark disables the
-     * settings GL overrides (CPU scanlines, VSync, 16-bit depth) and
-     * enables its own. Without the library the emulator falls back to the
-     * normal display, so those stay usable and the GL ones are greyed. */
-    if (gl_lib_ok) {
-        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
-                 d->cy_scanlines, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
-        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
-                 d->cm_vsync, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
-        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
-                 d->cy_depth, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
-        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
-                 d->cy_gleffect, 3, MUIM_Set, MUIA_Disabled, MUIV_NotTriggerValue);
-        DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
-                 d->cy_glsize, 3, MUIM_Set, MUIA_Disabled, MUIV_NotTriggerValue);
-        /* initial state */
-        set(d->cy_scanlines, MUIA_Disabled, c->gl_out ? TRUE : FALSE);
-        set(d->cm_vsync,     MUIA_Disabled, c->gl_out ? TRUE : FALSE);
-        set(d->cy_depth,     MUIA_Disabled, c->gl_out ? TRUE : FALSE);
-        set(d->cy_gleffect,  MUIA_Disabled, c->gl_out ? FALSE : TRUE);
-        set(d->cy_glsize,    MUIA_Disabled, c->gl_out ? FALSE : TRUE);
-    } else {
-        set(d->cm_glout,    MUIA_Disabled, TRUE);
-        set(d->cy_gleffect, MUIA_Disabled, TRUE);
-        set(d->cy_glsize,   MUIA_Disabled, TRUE);
-    }
+    /* GPU output: a change of the box comes back as ID_GLOUT and the main
+     * loop calls gpu_update_state(), which sets what is greyed. Without the
+     * library the box itself is greyed: the emulator would fall back to the
+     * normal display. */
+    DoMethod(d->cm_glout, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+             d->app, 2, MUIM_Application_ReturnID, ID_GLOUT);
+    if (!gl_lib_ok)
+        set(d->cm_glout, MUIA_Disabled, TRUE);
+    gpu_update_state(d);
 
     /* Sort order change */
     DoMethod(d->cy_sort, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
@@ -1513,6 +1500,56 @@ static Object *create_gui(struct AppData *d, const Config *c)
 }
 
 /* ---- Collect widgets -> Config ---- */
+/* ================================================================
+ * GPU OUTPUT: what the box greys
+ * ================================================================
+ * The GPU draws into one 32-bit screen of its own size: no CPU scanlines
+ * and no 16-bit screen. VSync works with it. Effect and Size belong to it.
+ * A box that is ticked while the library is missing counts as off here: the
+ * emulator falls back to the normal display, so the normal settings apply. */
+static void gpu_update_state(struct AppData *d)
+{
+    ULONG gl = 0;
+
+    get(d->cm_glout, MUIA_Selected, &gl);
+    if (!gl_lib_ok) gl = 0;
+
+    set(d->cy_scanlines, MUIA_Disabled, gl ? TRUE : FALSE);
+    set(d->cy_depth,     MUIA_Disabled, gl ? TRUE : FALSE);
+    set(d->cy_gleffect,  MUIA_Disabled, gl ? FALSE : TRUE);
+    set(d->cy_glsize,    MUIA_Disabled, gl ? FALSE : TRUE);
+}
+
+#ifdef LAUNCHER_TEST_GPU
+/* Test builds: sets the box the way a click would (set, then the handler)
+ * and prints what is greyed. */
+static void gpu_selftest(struct AppData *d)
+{
+    static const int step[] = { 0, 1, 0, 1 };
+    ULONG a, s, v, dp, e, z;
+    int i;
+
+    printf("GPU self-test: ogles2 lib %d\n", gl_lib_ok);
+    for (i = -1; i < (int)(sizeof(step) / sizeof(step[0])); i++) {
+        if (i >= 0) {
+            nnset(d->cm_glout, MUIA_Selected, step[i] ? TRUE : FALSE);
+            gpu_update_state(d);
+        }
+        get(d->cm_glout, MUIA_Selected, &a);
+        get(d->cy_scanlines, MUIA_Disabled, &s); get(d->cm_vsync, MUIA_Disabled, &v);
+        get(d->cy_depth, MUIA_Disabled, &dp);    get(d->cy_gleffect, MUIA_Disabled, &e);
+        get(d->cy_glsize, MUIA_Disabled, &z);
+        if (i < 0)
+            printf("  at start  ");
+        else
+            printf("  box %s", step[i] ? "on :   " : "off:   ");
+        printf("box=%lu | greyed: scanlines=%lu vsync=%lu depth=%lu effect=%lu size=%lu\n",
+               a ? 1UL : 0UL, s ? 1UL : 0UL, v ? 1UL : 0UL, dp ? 1UL : 0UL,
+               e ? 1UL : 0UL, z ? 1UL : 0UL);
+    }
+}
+#endif
+
 static void collect(struct AppData *d, Config *c)
 {
     ULONG val;
@@ -1726,21 +1763,27 @@ int main(void)
     config_load(&c);
     do_scan();
 
-    /* GPU output needs minigl.library 29 (PiStorm3D). Only checked here;
-     * the emulator itself falls back when it cannot use it. */
+    /* GPU output needs ogles2.library, version 1 or newer: OGLES2NAME and
+     * OGLES2_VERSION of the SDK's libraries/ogles2.h, which this file does
+     * not include. Only the installed one is looked for (the emulator's
+     * import library would also take a copy beside the program), and only
+     * here; the emulator itself falls back when it cannot use it. */
     {
-        struct Library *mgl = OpenLibrary("minigl.library", 29);
-        if (mgl) {
+        struct Library *og = OpenLibrary("ogles2.library", 1);
+        if (og) {
             snprintf(gl_status, sizeof(gl_status),
-                     "minigl.library %d.%d found",
-                     (int)mgl->lib_Version, (int)mgl->lib_Revision);
+                     "ogles2.library %d.%d found",
+                     (int)og->lib_Version, (int)og->lib_Revision);
             gl_lib_ok = 1;
-            CloseLibrary(mgl);
+            CloseLibrary(og);
         } else {
-            strcpy(gl_status, "minigl.library 29 not installed - needs Pi 4/CM4 + PiStorm3D");
+            strcpy(gl_status, "ogles2.library not installed - needs a Pi 4/CM4");
             gl_lib_ok = 0;
         }
     }
+#ifdef LAUNCHER_TEST_NOGL
+    gl_lib_ok = 0;      /* test builds: as on a machine without ogles2.library */
+#endif
 
     /* Initialise display hook (HookEntry bridges 68k register ABI -> C) */
     memset(&disp_hook, 0, sizeof(disp_hook));
@@ -1787,11 +1830,16 @@ int main(void)
 
     rebuild_list(d.list_roms, d.tx_count, "");
     cheats_sync(&d, 1);
+#ifdef LAUNCHER_TEST_GPU
+    gpu_selftest(&d);
+    running = FALSE;        /* the self-test build prints and leaves */
+#else
     set(d.window, MUIA_Window_Open, TRUE);
     /* Give the list keyboard focus immediately */
     set(d.window, MUIA_Window_ActiveObject, (ULONG)d.lv_roms);
 
     running = TRUE;
+#endif
     while (running) {
         id = DoMethod(d.app, MUIM_Application_NewInput, &signals);
         switch (id) {
@@ -1870,6 +1918,10 @@ int main(void)
                                 STR("Could not write the cheat file:\n%s"),
                                 cheat_path);
                 }
+                break;
+
+            case ID_GLOUT:
+                gpu_update_state(&d);
                 break;
 
             case ID_LAUNCH:

@@ -8,7 +8,7 @@
 #  Compiler: https://github.com/bebbo/amiga-gcc
 #            Windows installer: http://franke.ms/download/setup-amiga-gcc.exe
 #
-#  Usage (build.bat runs the first line, plus USE_MINIGL=1 with the SDK):
+#  Usage (build.bat runs the first line, plus USE_OGLES2=1 with the ogles2 SDK):
 #    make all USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
 #    make launcher     - Build the MUI launcher
 #    make clean        - Clean build files
@@ -276,22 +276,21 @@ amiga/miniz_zip.o: amiga/miniz_zip.c amiga/miniz_zip.h amiga/miniz_common.h
 	$(CC) $(MINIZ_CFLAGS) -c amiga/miniz_zip.c -o amiga/miniz_zip.o
 endif
 
-# PiStorm3D GL output (opt-in: make USE_MINIGL=1)
-# Needs the PiStorm3D client SDK (minigl.library 29.1). The binary still runs
-# without minigl.library installed: -gl then falls back to the normal display.
-# Override the SDK location with MINIGL_SDK=<path>.
-ifdef USE_MINIGL
-# This Windows-hosted gcc cannot follow the SDK's own "../../../backend"
-# includes from a relative or /cygdrive path (verified 2026-10-09), so the
-# SDK path is turned into a drive path: /cygdrive/z/x -> z:/x.
-_MG_ABS    := $(patsubst /%,%,$(patsubst /cygdrive/%,/%,$(abspath ../PiStorm3D/PiStorm3D/SDK)))
-_MG_DRIVE  := $(firstword $(subst /, ,$(_MG_ABS)))
-MINIGL_SDK ?= $(_MG_DRIVE):/$(patsubst $(_MG_DRIVE)/%,%,$(_MG_ABS))
-OBJECTS    += amiga/video_gl.o
-CFLAGS     += -DUSE_MINIGL
-LIBS       := -L$(MINIGL_SDK)/lib -lminigl $(LIBS)
-amiga/video_gl.o: amiga/video_gl.c amiga/video_gl.h
-	$(CC) $(CFLAGS) -I$(MINIGL_SDK)/minigl-shared-library/include -c amiga/video_gl.c -o amiga/video_gl.o
+# GPU output through ogles2.library (opt-in: make USE_OGLES2=1; -gl, glout=1).
+# Needs the ogles2 SDK (github.com/ladislawv/ogles2pi3, release/dist/
+# ogles2-<version>-sdk.zip) unpacked next to this folder; override with
+# OGLES2_SDK=<path>. The binary still runs without ogles2.library: -gl then
+# falls back to the normal display. video_gles.o has its own rule because
+# only it may see <proto/ogles2.h>, which defines every gl* name as a macro.
+ifdef USE_OGLES2
+_OG_ABS    := $(patsubst /%,%,$(patsubst /cygdrive/%,/%,$(abspath ../ogles2-sdk-1.4-beta1)))
+_OG_DRIVE  := $(firstword $(subst /, ,$(_OG_ABS)))
+OGLES2_SDK ?= $(_OG_DRIVE):/$(patsubst $(_OG_DRIVE)/%,%,$(_OG_ABS))
+OBJECTS    += amiga/video_gles.o
+CFLAGS     += -DUSE_OGLES2
+LIBS       := -L$(OGLES2_SDK)/lib -logles2 $(LIBS)
+amiga/video_gles.o: amiga/video_gles.c amiga/video_gles.h amiga/video_cgx.h
+	$(CC) $(CFLAGS) -I$(OGLES2_SDK)/include -c amiga/video_gles.c -o amiga/video_gles.o
 endif
 
 #############################################################################
@@ -341,7 +340,7 @@ strip: $(TARGET)
 	$(STRIP) -s $(TARGET) -o $(TARGET).stripped
 
 clean:
-	rm -f $(OBJECTS) amiga/svp_asm.o amiga/blip_asm.o amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o amiga/video_gl.o amiga/prof.o amiga/prof_asm.o $(TARGET) $(TARGET).stripped $(LAUNCHER_TARGET) $(LAUNCHER_OBJ)
+	rm -f $(OBJECTS) amiga/svp_asm.o amiga/blip_asm.o amiga/miniz.o amiga/miniz_tinfl.o amiga/miniz_zip.o amiga/video_gles.o amiga/prof.o amiga/prof_asm.o $(TARGET) $(TARGET).stripped $(LAUNCHER_TARGET) $(LAUNCHER_OBJ)
 	@echo "Clean complete!"
 
 # Dependency generation (optional, for development)

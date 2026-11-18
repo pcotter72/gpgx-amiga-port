@@ -8,6 +8,10 @@ GenesisPlusGX_*
 *.stripped
 .buildstamp
 amiga/bench/beamtest
+amiga/bench/beamprobe
+amiga/bench/bovpprobe
+amiga/bench/dbuftest
+amiga/bench/glestest
 amiga/bench/dispbench
 amiga/bench/emutest
 
@@ -17,6 +21,7 @@ Roms/
 
 # Claude Code: project instructions and machine-local state stay local
 CLAUDE.md
+STATUS-*.md
 .claude/
 
 # Runtime data created on the Amiga side

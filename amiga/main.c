@@ -45,8 +45,8 @@ static const char amiga_version[] = "$VER: GenesisPlusGX " GPGX_VERSION " (" GPG
 
 /* Amiga subsystem includes */
 #include "video_cgx.h"
-#ifdef USE_MINIGL
-#include "video_gl.h"
+#ifdef USE_OGLES2
+#include "video_gles.h"
 #endif
 #include "audio_paula.h"
 #include "audio_paula14.h"
@@ -97,6 +97,34 @@ struct Device *TimerBase = NULL;
  * Was 4 (every 5th frame): an A500 with a Pi 3 that is 11% too slow then
  * drew 22% of its frames (measured 2026-10-20). */
 #define AUTOSKIP_MAX_RUN 2
+/* VSync: a frame waits for the vertical blank only if it is ready at least
+ * this long before the blank is expected. Nearer than that the wait could
+ * begin just after the blank and last a whole refresh. Chosen, not measured:
+ * it covers the 32-bit 1x blit that precedes a buffer swap (427 us average
+ * on the A1200 + CM4, 2026-11-17) with some room; the blit of a 2x screen
+ * is longer and was not measured. The exit summary counts
+ * the waits that still ran a refresh long; many of them mean it is too
+ * small. */
+#define VSYNC_GUARD_US 700
+/* VSync: the display is the frame clock when its refresh period is within
+ * this fraction of the game's frame period. Chosen: the audio rate control
+ * corrects ~0.6% per frame, so the difference has to stay well inside that;
+ * 59.94 against 60 Hz is 0.1%. */
+#define VSYNC_LOCK_MAX_DIFF 0.0025
+
+/* With the display as the frame clock, the end of a wait for the blank is
+ * the frame's real deadline. When it comes BEFORE the expected blank, the
+ * schedule follows it by at most this fraction of a frame per frame: 0.5%,
+ * which the audio rate control (0.6% per frame, see audio_update) can still
+ * take up. A wait that does not really wait can then make the emulation at
+ * most 0.5% fast; taken whole it made a run 10% fast (A1200, rtg.library
+ * 43.787, 17.11.2026: buffer swaps came back 2.6 ms early on average, the
+ * run was 2.3 s ahead after 23 s and dropped 133 frames of audio). Real
+ * blanks are within about 0.2 ms of the expected one, so the schedule
+ * settles on them in a few frames. A wait that ends more than
+ * VSYNC_EARLY_US before the expected blank is counted in the exit summary. */
+#define VSYNC_EARLY_SLEW 0.005
+#define VSYNC_EARLY_US   1000
 #define AUDIO_SAMPLES   1024  /* Must cover worst case: period 80 PAL = 892 spf.
                                * 800 caused buffer overflow at period 86 (825 spf)
                                * and period 80 (892 spf). 1024 covers all rates. */
@@ -170,7 +198,14 @@ static void config_default(void)
     config.system = 0;          /* AUTO */
     config.region_detect = 0;   /* AUTO */
     config.master_clock = 0;    /* AUTO */
+#ifdef TEST_VDP_MODE
+    /* test builds (make "EXTRA_DEFS=-DTEST_VDP_MODE=2"): 1 forces 60 Hz,
+     * 2 forces 50 Hz for any ROM, e.g. to run a 50 Hz game on a 60 Hz
+     * display without owning a PAL ROM */
+    config.vdp_mode = TEST_VDP_MODE;
+#else
     config.vdp_mode = 0;        /* AUTO */
+#endif
     config.force_dtack = 0;
     config.addr_error = 1;
     config.bios = 0;
@@ -1592,7 +1627,7 @@ typedef struct
     int hqfm;           /* FM -> blip flush: 1=band-limited (default), 0=linear (~1% of a Pi 3 frame) */
     int hqpsg;          /* PSG: 1=band-limited (default), 0=linear (no measurable gain on a Pi 3) */
     int screendepth;    /* RTG screen depth: 32 (default) or 16 (RGB565, half the blit bandwidth) */
-    int glout;          /* 1 = GPU output via PiStorm3D minigl.library (GL builds only) */
+    int glout;          /* 1 = GPU output via ogles2.library (USE_OGLES2 builds only) */
     int gleffect;       /* GPU output effect: 0=sharp 1=smooth 2=scanlines 3=composite */
     int glwidth;        /* GPU output screen size */
     int glheight;
@@ -1875,6 +1910,13 @@ static void config_load(config_file_t *cfg)
         {
             cfg->glout = atoi(value) ? 1 : 0;
         }
+        else if (strcmp(key, "glesout") == 0)
+        {
+            /* written by the test builds of 17.11.2026, which had this key
+             * for ogles2 beside glout for minigl */
+            if (atoi(value))
+                cfg->glout = 1;
+        }
         else if (strcmp(key, "gleffect") == 0)
         {
             cfg->gleffect = atoi(value);
@@ -2012,9 +2054,9 @@ static void config_save_default(void)
             ";   classic Amigas with Zorro RTG cards (Picasso II etc).\n"
             ";   Falls back to 32 if no 16-bit RTG mode exists.\n"
             "screendepth=32\n"
-            "; glout: 1 = GPU output through PiStorm3D minigl.library 29.1\n"
-            ";   (Pi 4/CM4 only). Better scaling and effects, but costs ~6 ms\n"
-            ";   of CPU per drawn frame. Forces vsync off. Falls back to the\n"
+            "; glout: 1 = GPU output through ogles2.library (OpenGL ES 2.0,\n"
+            ";   Pi 4/CM4 only). Better scaling and effects, costs ~2.4 ms of\n"
+            ";   CPU per drawn frame. VSync works with it. Falls back to the\n"
             ";   normal display when the library is missing.\n"
             "glout=0\n"
             "; gleffect: 0=sharp 1=smooth 2=scanlines 3=composite blend\n"
@@ -2091,14 +2133,13 @@ int main(int argc, char *argv[])
     int i;
     int scanlines = 0;
     int use_vsync = 0;
-#ifdef USE_MINIGL
-    int use_gl = 0;           /* -gl: draw through PiStorm3D / minigl.library */
-    int gl_effect = VGL_FX_SMOOTH;
-    int gl_rgba = 0;          /* -glrgba: upload RGBA8 instead of RGB565 */
-    int gl_w = 640, gl_h = 480;
-    int gl_ring = 1;          /* -glring=N test switch: frame textures rotated */
-    int gl_half = 0;          /* -glhalf test switch: upload halves alternately */
-    int gl_active = 0;        /* GL output really running */
+#ifdef USE_OGLES2
+    /* glout=1 / -gl: GPU output through ogles2.library (a Pi 4/CM4, see
+     * video_gles.c). Until 1.11 this was the PiStorm3D minigl path. */
+    int use_gles = 0;
+    int gles_effect = VGLES_FX_SMOOTH;
+    int gles_w = 640, gles_h = 480;
+    int gles_active = 0;      /* really running */
 #endif
     int use_ahi = 0;
     int ahi_freq = 22050;     /* AHI core frequency - keep low for speed */
@@ -2128,15 +2169,15 @@ int main(int argc, char *argv[])
     paula_freq = cfg.paula_freq;
     frameskip = cfg.frameskip;
     use_autoskip = cfg.autoskip;
-    /* vsync: ChangeScreenBuffer blocks on VBL - that IS the frame clock.
-     * autoskip would see elapsed>=budget on every frame and skip half of them. */
-    if (use_vsync) use_autoskip = 0;
+    /* VSync no longer switches autoskip off: a frame only waits for the
+     * vertical blank when it is on time (see the main loop), so a late
+     * frame is seen as late and may be skipped like without VSync. */
     show_fps_counter = cfg.fps;
-#ifdef USE_MINIGL
-    use_gl = cfg.glout;
-    gl_effect = cfg.gleffect;
-    gl_w = cfg.glwidth;
-    gl_h = cfg.glheight;
+#ifdef USE_OGLES2
+    use_gles = cfg.glout;
+    gles_effect = cfg.gleffect;
+    gles_w = cfg.glwidth;
+    gles_h = cfg.glheight;
 #endif
     switch (cfg.audio_mode)
     {
@@ -2162,7 +2203,7 @@ int main(int argc, char *argv[])
         printf("\nVideo options:\n");
         printf("  -scanlines    Enable scanlines (medium, 2x mode)\n");
         printf("  -scanlines=N  Scanline level 1-3 (1=subtle, 2=medium, 3=strong)\n");
-        printf("  -vsync        Enable VSync (reduces tearing, may drop to 30fps)\n");
+        printf("  -vsync        Show frames at the vertical blank (no tearing while on time)\n");
         printf("  -screendepth=N  RTG screen depth: 32 (default) or 16 (Zorro RTG cards)\n");
         printf("\nAudio options:\n");
         printf("  -14bit        Use 14-bit Paula stereo (higher quality, 4 channels)\n");
@@ -2181,13 +2222,13 @@ int main(int argc, char *argv[])
         printf("  -noautoskip   Never skip frames automatically\n");
         printf("  -fps          Show FPS counter in top-right corner\n");
         printf("  -nodrc        Virtua Racing (SVP): interpreter, not the recompiler\n");
-#ifdef USE_MINIGL
-        printf("\nGL output (PiStorm3D / minigl.library 29, Pi 4/CM4 only):\n");
-        printf("  -gl           Draw through the V3D GPU (falls back if unavailable)\n");
+#ifdef USE_OGLES2
+        printf("\nGPU output (ogles2.library 1.3 or newer, Pi 4/CM4 only):\n");
+        printf("  -gl           Draw through the GPU with OpenGL ES 2.0 (falls back if unavailable)\n");
         printf("  -nogl         Normal display even if glout=1 in the config\n");
         printf("  -gleffect=N   0=sharp 1=smooth 2=scanlines 3=composite blend\n");
-        printf("  -glsize=WxH   GL screen size (default 640x480)\n");
-        printf("  -glrgba       Upload RGBA8 instead of RGB565 (if colours look wrong)\n");
+        printf("  -glsize=WxH   GPU output screen size (default 640x480)\n");
+        printf("  With -vsync the frame goes to the GPU at the vertical blank.\n");
 #endif
         printf("\nDefault audio: 8-bit Paula stereo, 41243 Hz (see the config file)\n");
         printf("\nConfig file: PROGDIR:GenesisPlusGX.cfg (auto-created on first run)\n");
@@ -2200,6 +2241,40 @@ int main(int argc, char *argv[])
     /* Parse optional arguments */
     for (i = 2; i < argc; i++)
     {
+#ifdef USE_OGLES2
+        /* The -gles... spellings are those of the test builds of 17.11.2026 */
+        if (strcmp(argv[i], "-nogl") == 0 || strcmp(argv[i], "-nogles") == 0)
+        {
+            use_gles = 0;
+        }
+        else if (strcmp(argv[i], "-gl") == 0 || strcmp(argv[i], "-gles") == 0)
+        {
+            use_gles = 1;
+        }
+        else if (strncmp(argv[i], "-gleffect=", 10) == 0 || strncmp(argv[i], "-gleseffect=", 12) == 0)
+        {
+            use_gles = 1;
+            gles_effect = atoi(strchr(argv[i], '=') + 1);
+        }
+        else if (strncmp(argv[i], "-glsize=", 8) == 0 || strncmp(argv[i], "-glessize=", 10) == 0)
+        {
+            int w = 0, h = 0;
+            use_gles = 1;
+            if (sscanf(strchr(argv[i], '=') + 1, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 224)
+            {
+                gles_w = w;
+                gles_h = h;
+            }
+            else
+                printf("GLES: ignoring %s (use e.g. -glsize=1280x720)\n", argv[i]);
+        }
+        else if (strcmp(argv[i], "-glrgba") == 0 || strcmp(argv[i], "-glhalf") == 0 ||
+                 strncmp(argv[i], "-glring=", 8) == 0)
+        {
+            printf("GLES: %s belonged to the minigl output, which is gone: ignored\n", argv[i]);
+        }
+        else
+#endif
         if (strcmp(argv[i], "-scanlines") == 0)
         {
             scanlines = 2;  /* Medium by default */
@@ -2213,7 +2288,6 @@ int main(int argc, char *argv[])
         else if (strcmp(argv[i], "-vsync") == 0)
         {
             use_vsync = 1;
-            use_autoskip = 0;  /* VBL is frame clock; autoskip would falsely skip half frames */
         }
         else if (strncmp(argv[i], "-screendepth=", 13) == 0)
         {
@@ -2313,69 +2387,17 @@ int main(int argc, char *argv[])
         {
             show_fps_counter = 1;
         }
-#ifdef USE_MINIGL
-        else if (strcmp(argv[i], "-gl") == 0)
-        {
-            use_gl = 1;
-        }
-        else if (strcmp(argv[i], "-nogl") == 0)
-        {
-            use_gl = 0;
-        }
-        else if (strncmp(argv[i], "-gleffect=", 10) == 0)
-        {
-            use_gl = 1;
-            gl_effect = atoi(argv[i] + 10);
-        }
-        else if (strcmp(argv[i], "-glrgba") == 0)
-        {
-            use_gl = 1;
-            gl_rgba = 1;
-        }
-        else if (strcmp(argv[i], "-glhalf") == 0)
-        {
-            use_gl = 1;
-            gl_half = 1;
-        }
-        else if (strncmp(argv[i], "-glring=", 8) == 0)
-        {
-            use_gl = 1;
-            gl_ring = atoi(argv[i] + 8);
-            if (gl_ring < 1 || gl_ring > 3)
-            {
-                printf("GL: -glring takes 1 to 3, using 1\n");
-                gl_ring = 1;
-            }
-        }
-        else if (strncmp(argv[i], "-glsize=", 8) == 0)
-        {
-            int w = 0, h = 0;
-            use_gl = 1;
-            if (sscanf(argv[i] + 8, "%dx%d", &w, &h) == 2 && w >= 320 && h >= 224)
-            {
-                gl_w = w;
-                gl_h = h;
-            }
-            else
-                printf("GL: ignoring %s (use e.g. -glsize=1280x720)\n", argv[i]);
-        }
-#endif
     }
 
-#ifdef USE_MINIGL
-    /* GL output draws its own picture into a single 32-bit screen bitmap:
-     * no double-buffered VSync (the swap would change the bitmap under the
-     * GL context) and no 16-bit screen. */
-    if (use_gl && use_vsync)
-    {
-        printf("GL: VSync is not supported with GL output, disabled\n");
-        use_vsync = 0;
-    }
-#endif
-    
     /* Set scanline mode before video init */
     
-    /* Set vsync mode */
+    /* Set vsync mode. The GLES path draws into the screen's one bitmap, so
+     * with it only the wait for the blank is used, never a buffer swap. */
+#ifdef USE_OGLES2
+    if (use_gles)
+        video_cgx_set_vsync(use_vsync ? 2 : 0);
+    else
+#endif
     video_cgx_set_vsync(use_vsync);
     
     /* Open AmigaOS libraries */
@@ -2547,10 +2569,10 @@ int main(int argc, char *argv[])
     /* Calculate frame time */
     frame_time_us = vdp_pal ? 20000 : 16667;  /* 50Hz or 60Hz */
     
-#ifdef USE_MINIGL
-    if (use_gl)
+#ifdef USE_OGLES2
+    if (use_gles)
     {
-        video_cgx_set_screen_size(gl_w, gl_h);
+        video_cgx_set_screen_size(gles_w, gles_h);
         video_cgx_set_depth(32);
     }
 #endif
@@ -2566,19 +2588,13 @@ int main(int argc, char *argv[])
     bitmap.pitch = video_cgx_get_pitch();
     bitmap.data = video_cgx_get_buffer();
 
-#ifdef USE_MINIGL
-    if (use_gl)
+#ifdef USE_OGLES2
+    if (use_gles)
     {
         if (video_cgx_get_screen_bpp() != 4)
-            printf("GL: needs a 32-bit screen - using the normal display\n");
+            printf("GLES: needs a 32-bit screen - using the normal display\n");
         else
-        {
-            video_gl_set_experiments(gl_ring, gl_half);
-            gl_active = video_gl_init(video_cgx_get_screen_bitmap(),
-                                      video_cgx_get_screen_width(),
-                                      video_cgx_get_screen_height(),
-                                      gl_effect, gl_rgba);
-        }
+            gles_active = video_gles_init(video_cgx_get_window(), gles_effect);
     }
 #endif
     
@@ -2785,13 +2801,83 @@ int main(int argc, char *argv[])
         int ft_have_prev = 0;
         ULONG ft_period_max = 0, ft_late = 0;
         ULONG ft_drawn = 0;                 /* frames actually rendered */
+        /* VSync (see the block below). vs_on: the display shows a usable
+         * vertical blank. vs_lock: its refresh rate also matches the game's,
+         * so the display is the frame clock. */
+        int vs_on = 0, vs_lock = 0;
+        double vs_guard_ticks = 0.0;
+        ULONG vs_refresh_us = 0;
+        ULONG vs_wait_us = 0;               /* this frame's wait for the blank */
+        ULONG vs_synced = 0, vs_late = 0, vs_busy = 0, vs_long = 0;
+        ULONG vs_early = 0;                 /* waits that ended well before the blank */
+        double vs_grid_b = 0.0;             /* a blank the schedule was set to, EClock ticks */
+        double vs_wait_sum = 0.0;
+        ULONG vs_wait_max = 0;
+#ifdef VSYNC_PROBE
+        ULONG vs_hist[14];                  /* waits, 2 ms buckets, [13] = 26 ms and more */
+#endif
 
         memset(aud_depth, 0, sizeof(aud_depth));
+#ifdef VSYNC_PROBE
+        memset(vs_hist, 0, sizeof(vs_hist));
+#endif
         if (eclock_freq)
         {
             ReadEClock(&ev_run_start);
             frame_period_ticks = (vdp_pal ? 0.020 : 1.0 / 60.0) * (double)eclock_freq;
             next_deadline = eclock_ticks(&ev_run_start) + frame_period_ticks;
+        }
+
+        /* VSync. A drawn frame waits for the vertical blank only while it is
+         * on time, i.e. while the blank can still come before the frame's
+         * deadline; a late frame is drawn at once (it may tear) and is late
+         * for autoskip exactly as without VSync. So VSync never slows the
+         * emulation down; the old code waited in every frame and switched
+         * autoskip off, and a game near the frame budget lost a whole
+         * refresh each time it overran (Virtua Racing on the A1200 + CM4:
+         * 42 fps and 1072 audio dry-outs in 44 s, against 59 fps and 20
+         * without VSync, 2026-11-17).
+         *
+         * If the display's measured refresh period is within
+         * VSYNC_LOCK_MAX_DIFF of the game's frame, the display becomes the
+         * frame clock: the schedule runs with the display's period and is
+         * set to the real blank after every wait, so the two cannot drift
+         * apart. The game then runs at the display's rate (59.95 instead of
+         * 60 Hz on that A1200) and the audio rate control takes up the
+         * difference. Otherwise (a 50 Hz game on a 60 Hz display) the timer
+         * keeps the speed and a frame waits for a blank where there is one
+         * before its deadline. */
+        if (use_vsync && eclock_freq)
+        {
+            double rt = video_cgx_vsync_period();
+
+            if (rt > 0.0)
+            {
+                double diff = (rt - frame_period_ticks) / frame_period_ticks;
+
+                if (diff < 0.0) diff = -diff;
+                vs_on = 1;
+                vs_refresh_us = (ULONG)(rt * 1000000.0 / (double)eclock_freq + 0.5);
+                vs_guard_ticks = (double)VSYNC_GUARD_US * (double)eclock_freq / 1000000.0;
+                if (diff <= VSYNC_LOCK_MAX_DIFF)
+                {
+                    /* first blank after now, counted from the last one seen */
+                    double b = video_cgx_vsync_blank();
+                    double now_t = eclock_ticks(&ev_run_start);
+                    ULONG n = (now_t > b) ? (ULONG)((now_t - b) / rt) + 1 : 1;
+
+                    vs_lock = 1;
+                    vs_grid_b = b;
+                    frame_period_ticks = rt;
+                    frame_time_us = vs_refresh_us;
+                    next_deadline = b + (double)n * rt;
+                    printf("VSync: display refresh %lu us, frames follow the display\n",
+                           vs_refresh_us);
+                }
+                else
+                    printf("VSync: display refresh %lu us against a %lu us frame:"
+                           " the timer keeps the speed\n", vs_refresh_us, frame_time_us);
+            }
         }
 
 #ifdef GPGX_PROFILE
@@ -3072,20 +3158,86 @@ int main(int argc, char *argv[])
                     vp_y = 0;           /* remap_line already applied the crop */
                 }
 
-#ifdef USE_MINIGL
-                if (gl_active)
                 {
-                    /* FPS / OSD text go into the frame itself: the GPU
-                     * draws the whole screen, so nothing drawn on it
-                     * afterwards would survive. */
-                    video_cgx_overlay_rgb565((UWORD *)bitmap.data, bitmap.pitch / 2,
-                                             vp_x, vp_y, vp_w, vp_h);
-                    video_gl_update((const UWORD *)bitmap.data, bitmap.pitch / 2,
-                                    vp_x, vp_y, vp_w, vp_h);
-                }
-                else
+                    /* VSync: wait for the blank only if it can still come
+                     * before this frame's deadline (see the block above) */
+                    double vs_limit = vs_on ? next_deadline - vs_guard_ticks : 0.0;
+                    int vs_res = VSYNC_OFF;
+
+#ifdef USE_OGLES2
+                    if (gles_active)
+                    {
+                        /* FPS / OSD text go into the frame itself: the GPU
+                         * draws the whole screen, so nothing drawn on it
+                         * afterwards would survive. */
+                        video_cgx_overlay_rgb565((UWORD *)bitmap.data, bitmap.pitch / 2,
+                                                 vp_x, vp_y, vp_w, vp_h);
+                        vs_res = video_gles_update((const UWORD *)bitmap.data, bitmap.pitch / 2,
+                                                   vp_x, vp_y, vp_w, vp_h, vs_limit);
+                    }
+                    else
 #endif
-                video_cgx_update(vp_x, vp_y, vp_w, vp_h);
+                    vs_res = video_cgx_update(vp_x, vp_y, vp_w, vp_h, vs_limit);
+
+                    if (vs_res == VSYNC_SYNCED)
+                    {
+                        vs_wait_us = video_cgx_vsync_wait_us();
+                        vs_synced++;
+                        vs_wait_sum += (double)vs_wait_us;
+                        if (vs_wait_us > vs_wait_max) vs_wait_max = vs_wait_us;
+#ifdef VSYNC_PROBE
+                        vs_hist[vs_wait_us / 2000 > 13 ? 13 : vs_wait_us / 2000]++;
+#endif
+                        if (vs_lock)
+                        {
+                            /* The blank that was waited for is the real
+                             * deadline. If it came more than half a refresh
+                             * after the expected one, a refresh was lost:
+                             * that stays in the schedule as whole periods
+                             * of lag, for autoskip and the late frames to
+                             * win back. */
+                            double b = video_cgx_vsync_blank();
+                            double late = b - next_deadline;
+                            ULONG lost = 0;
+
+                            if (late >= 0.0)
+                            {
+                                if (late > 0.5 * frame_period_ticks)
+                                    lost = (ULONG)(late / frame_period_ticks + 0.5);
+                                if (lost)
+                                    vs_long++;
+                                next_deadline = b - (double)lost * frame_period_ticks;
+                                vs_grid_b = b;
+                            }
+#ifdef VSYNC_TEST_OLDPACE   /* test builds: the code as it was, which runs fast */
+                            else
+                                next_deadline = b;
+#else
+                            else
+                            {
+                                /* before the expected blank: see VSYNC_EARLY_SLEW */
+                                double slew = VSYNC_EARLY_SLEW * frame_period_ticks;
+
+                                if (-late <= slew)
+                                {
+                                    next_deadline = b;
+                                    vs_grid_b = b;
+                                }
+                                else
+                                {
+                                    next_deadline -= slew;
+                                    if (-late > (double)VSYNC_EARLY_US * (double)eclock_freq / 1000000.0)
+                                        vs_early++;
+                                }
+                            }
+#endif
+                        }
+                    }
+                    else if (vs_res == VSYNC_LATE)
+                        vs_late++;
+                    else if (vs_res == VSYNC_BUSY)
+                        vs_busy++;
+                }
             }
             
             /* Update FPS counter */
@@ -3138,14 +3290,17 @@ int main(int argc, char *argv[])
                 {
                     struct EClockVal ev_now;
                     double now_t;
-                    ULONG vid_us = (elapsed_us > ft_emu_us) ? elapsed_us - ft_emu_us : 0;
+                    /* the frame's work: without the VSync wait for the blank */
+                    ULONG work_us = (elapsed_us > vs_wait_us) ? elapsed_us - vs_wait_us : 0;
+                    ULONG vid_us = (work_us > ft_emu_us) ? work_us - ft_emu_us : 0;
 
+                    vs_wait_us = 0;
                     ft_frames++;
                     ft_emu_sum += (double)ft_emu_us;
                     ft_vid_sum += (double)vid_us;
                     if (ft_emu_us > ft_emu_max) ft_emu_max = ft_emu_us;
                     if (vid_us > ft_vid_max)    ft_vid_max = vid_us;
-                    if (elapsed_us >= frame_time_us)
+                    if (work_us >= frame_time_us)
                         ft_over++;
 
                     ReadEClock(&ev_now);
@@ -3167,6 +3322,14 @@ int main(int argc, char *argv[])
                         if (now_t - next_deadline > 4.0 * frame_period_ticks)
                         {
                             next_deadline = now_t;
+                            /* With the display as the frame clock: back
+                             * onto the blanks, counted from the last one
+                             * the schedule was set to. Otherwise every
+                             * blank after this would come "early" against
+                             * a schedule with an arbitrary phase. */
+                            if (vs_lock && now_t > vs_grid_b)
+                                next_deadline = vs_grid_b + frame_period_ticks *
+                                    (double)(ULONG)((now_t - vs_grid_b) / frame_period_ticks);
                             sched_resyncs++;
                         }
                     }
@@ -3177,6 +3340,12 @@ int main(int argc, char *argv[])
             }
             
             frame_count++;
+#ifdef TEST_EXIT_FRAMES
+            /* test builds: leave after this many frames, so that a run
+             * needs no key press */
+            if (frame_count >= TEST_EXIT_FRAMES)
+                running = 0;
+#endif
         }
 #ifdef GPGX_PROFILE
         if (prof_jitdepth >= 0)
@@ -3258,6 +3427,35 @@ int main(int argc, char *argv[])
                     ULONG dr10 = (ULONG)((double)ft_drawn * 1000.0 / (double)ft_frames + 0.5);
                     printf("Frames: %lu of %lu drawn (%lu.%lu%%)\n",
                            ft_drawn, ft_frames, dr10 / 10, dr10 % 10);
+                }
+                if (vs_on)
+                {
+                    /* "times not included above": the wait for the blank is
+                     * neither emulation nor video time */
+                    printf("VSync: %s, refresh %lu us, %s\n", video_cgx_vsync_method(),
+                           vs_refresh_us, vs_lock ? "frames follow the display"
+                                                  : "the timer keeps the speed");
+                    printf("VSync: %lu frames shown at the vertical blank (average wait %lu us,"
+                           " max %lu us), %lu late and drawn at once, %lu without a free buffer\n",
+                           vs_synced,
+                           vs_synced ? (ULONG)(vs_wait_sum / (double)vs_synced + 0.5) : 0UL,
+                           vs_wait_max, vs_late, vs_busy);
+                    if (vs_lock)
+                    {
+                        printf("VSync: %lu waits ran a refresh or more past the expected blank\n",
+                               vs_long);
+                        printf("VSync: %lu waits ended more than %d us before the expected blank"
+                               " (the timer kept the speed)\n", vs_early, VSYNC_EARLY_US);
+                    }
+#ifdef VSYNC_PROBE
+                    {
+                        int h;
+                        printf("VSync probe: waits in 2 ms buckets from 0 (last = 26 ms and more):");
+                        for (h = 0; h < 14; h++)
+                            printf(" %lu", vs_hist[h]);
+                        printf("\n");
+                    }
+#endif
                 }
                 if (svp && ssp_dbg_calls)
                 {
@@ -3409,10 +3607,10 @@ int main(int argc, char *argv[])
     {
         paula_audio_shutdown();
     }
-#ifdef USE_MINIGL
-    /* Before the screen closes: the GL context renders into its bitmap */
-    if (gl_active)
-        video_gl_shutdown();
+#ifdef USE_OGLES2
+    /* Before the window and screen close: the context draws into them */
+    if (gles_active)
+        video_gles_shutdown();
 #endif
     video_cgx_shutdown();
     restore_paula_filter();

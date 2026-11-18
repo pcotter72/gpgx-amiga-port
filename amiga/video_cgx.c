@@ -93,7 +93,7 @@ static int video_pitch = 0;
 static int video_depth = 32;
 static int video_initialized = 0;
 
-/* Double buffering for VSync */
+/* Double buffering for VSync (VS_SWAP, see vsync_setup()) */
 static struct ScreenBuffer *sb[2] = {NULL, NULL};
 static struct MsgPort *sb_safe_port = NULL;  /* dbi_SafeMessage replies (both buffers) */
 static int sb_current = 0;       /* Which buffer is displayed (front) */
@@ -119,8 +119,43 @@ static int fps_frame_count = 0;
 static int fps_current = 0;
 static ULONG fps_last_time = 0;
 
-/* VSync */
-static int vsync_enabled = 0;
+/* VSync. Two ways to put a picture on screen at the vertical blank, picked
+ * by measurement in vsync_setup() because RTG drivers differ (measured
+ * 2026-11-17 with rtg.library 40.39 and VideoCore.card 1.5 on an A1200 with
+ * a PiStorm, Emu68, amiga/bench/dbuftest*.log):
+ *
+ *  - driver with a vertical blank interrupt: WaitBOVP() sleeps until the
+ *    blank (60 calls = 1000807 us), but ChangeScreenBuffer() returns two
+ *    blanks later and its SafeMessage a third, so two buffers cannot be
+ *    swapped more than ~30 times a second. VS_BLANK: wait, then blit into
+ *    the one screen bitmap (the blit takes ~0.4 ms and runs ahead of the
+ *    beam).
+ *  - the same driver polling (monitor tooltype INTERRUPT=NO):
+ *    WaitBOVP() calls in a row return at once (60 calls = 91 us),
+ *    ChangeScreenBuffer() returns at the next blank and the SafeMessage
+ *    20 us later. VS_SWAP: blit into the back buffer, then swap.
+ *    (rtg.library's polling WaitBOVP is the driver's WaitVerticalSync(),
+ *    which waits for a line value held ~109 us: a call outside that window
+ *    does wait, calls in a row all fall inside it. The measurement in
+ *    vsync_setup() calls it in a row, so it does not take VS_BLANK here; a
+ *    single call per frame was not measured.)
+ *
+ * Whether the two-blank swap is rtg.library's way of using the interrupt or
+ * this driver's is not known. Other drivers were not measured; the choice is
+ * made from what the display does, not from its name.
+ *
+ * Either way a frame only waits when main.c says there is time for it. */
+#define VS_NONE  0
+#define VS_BLANK 1
+#define VS_SWAP  2
+#define VS_CAL_N 40                /* refresh periods measured at start */
+
+static int vsync_enabled = 0;      /* asked for with video_cgx_set_vsync() */
+static int vs_mode = VS_NONE;
+static double vs_period = 0.0;     /* refresh period in EClock ticks, 0 = none */
+static ULONG vs_efreq = 0;         /* EClock ticks per second */
+static struct EClockVal vs_blank;  /* EClock at the last blank a frame waited for */
+static ULONG vs_wait_us = 0;       /* how long the last frame waited for it */
 
 /* OSD text message */
 static char osd_text[64];
@@ -458,6 +493,309 @@ static ULONG GetBestRTGMode(ULONG width, ULONG height)
 }
 
 /****************************************************************************
+ * VSync setup (see the comment at vs_mode)
+ ****************************************************************************/
+static double vs_ticks(const struct EClockVal *v)
+{
+    return (double)v->ev_hi * 4294967296.0 + (double)v->ev_lo;
+}
+
+static ULONG vs_us(double ticks)
+{
+    return (ULONG)(ticks * 1000000.0 / (double)vs_efreq + 0.5);
+}
+
+/* The refresh period shown by n + 1 time stamps taken at successive vertical
+ * blanks, in EClock ticks, or 0.0 when they do not show one. The median
+ * interval must lie between 1/200 and 1/20 s and three quarters of the
+ * intervals within 10% of it (a swap now and then takes two blanks, which
+ * must not spoil the result); the period is then the whole span divided by
+ * the number of periods in it. */
+/* What the last vs_period_from() saw, for the message when it refuses */
+static ULONG vs_cal_med_us, vs_cal_lo_us, vs_cal_hi_us;
+static int   vs_cal_good;
+
+static double vs_period_from(const double *t, int n)
+{
+    double iv[VS_CAL_N], med, span;
+    int i, j, good = 0;
+    ULONG periods;
+
+    for (i = 0; i < n; i++)
+    {
+        double d = t[i + 1] - t[i];
+        for (j = i; j > 0 && iv[j - 1] > d; j--)
+            iv[j] = iv[j - 1];
+        iv[j] = d;
+    }
+    med = iv[n / 2];
+    for (i = 0; i < n; i++)
+        if (iv[i] > med * 0.9 && iv[i] < med * 1.1)
+            good++;
+    vs_cal_med_us = vs_us(med);
+    vs_cal_lo_us = vs_us(iv[0]);
+    vs_cal_hi_us = vs_us(iv[n - 1]);
+    vs_cal_good = good;
+    if (med < (double)vs_efreq / 200.0 || med > (double)vs_efreq / 20.0)
+        return 0.0;
+    if (good * 4 < n * 3)
+        return 0.0;
+    span = t[n] - t[0];
+    periods = (ULONG)(span / med + 0.5);
+    return periods ? span / (double)periods : 0.0;
+}
+
+/* Collects the SafeMessage of the last swap, for at most two seconds.
+ * Returns 0 when it did not come: the DBufInfo it belongs to must then not
+ * be freed. */
+static int vsync_collect_safe(void)
+{
+    struct EClockVal a, b;
+
+    if (sb_safe_to_write || !sb_safe_port)
+        return 1;
+    ReadEClock(&a);
+    do
+    {
+        if (GetMsg(sb_safe_port))
+        {
+            sb_safe_to_write = TRUE;
+            return 1;
+        }
+        ReadEClock(&b);
+    } while (vs_ticks(&b) - vs_ticks(&a) < 2.0 * (double)vs_efreq);
+    return 0;
+}
+
+/* Frees the two ScreenBuffers and their reply port, if there are any.
+ *
+ * screen_stays: the screen goes on being used, so the screen's first bitmap
+ * (sb[0], SB_SCREEN_BITMAP) is put back on display before the second one is
+ * freed. Intuition itself would cope without that: ChangeScreenBuffer()
+ * makes the installed bitmap the screen's (RastPort.BitMap, RealBitMap) and
+ * FreeScreenBuffer() never frees the installed one (V40 scsupp.c). But the
+ * first candidate of this code freed the buffers with the second one
+ * installed, which freed the bitmap the screen was opened with, and went on
+ * using the screen: under WinUAE (uaegfx 0.9) the emulated Amiga stopped
+ * answering right then, 2026-11-17. Whether that state was the cause is not
+ * proven; ending on the bitmap the screen was opened with is the state
+ * every RTG driver has certainly seen.
+ *
+ * Returns 0 when the buffers had to be kept (a SafeMessage did not come
+ * back, or the swap back was refused); the screen then stays on whichever
+ * buffer is installed, which video_screen->RastPort.BitMap follows, and
+ * the buffers are tried again at shutdown. */
+static int vsync_free_buffers(int screen_stays)
+{
+    /* A swap still in flight replies its SafeMessage to sb_safe_port:
+     * collect it before the port is deleted. */
+    if (!vsync_collect_safe())
+    {
+        printf("Video: a screen buffer's SafeMessage did not come back, buffers kept\n");
+        return 0;
+    }
+
+    if (screen_stays && sb_current != 0 && sb[0] && sb[1] && sb_safe_port)
+    {
+        int tries;
+
+        for (tries = 0; tries < 10 && sb_current != 0; tries++)
+        {
+            if (ChangeScreenBuffer(video_screen, sb[0]))
+            {
+                sb_current = 0;
+                sb_safe_to_write = FALSE;
+                if (!vsync_collect_safe())
+                {
+                    printf("Video: a screen buffer's SafeMessage did not come back, buffers kept\n");
+                    return 0;
+                }
+            }
+            else
+                WaitTOF();      /* refused (e.g. a menu is open): try again */
+        }
+        if (sb_current != 0)
+        {
+            printf("Video: cannot put the screen's first bitmap back on display, buffers kept\n");
+            return 0;
+        }
+    }
+
+    if (sb[1]) { FreeScreenBuffer(video_screen, sb[1]); sb[1] = NULL; }
+    if (sb[0]) { FreeScreenBuffer(video_screen, sb[0]); sb[0] = NULL; }
+    if (sb_safe_port) { DeleteMsgPort(sb_safe_port); sb_safe_port = NULL; }
+    sb_current = 0;
+    dbl_buf_active = 0;
+    return 1;
+}
+
+#if defined(VSYNC_TEST_NOBLANK) || defined(VSYNC_TEST_SWAP)
+/* Test builds, to run paths a machine's display would not take by itself:
+ *   make EXTRA_DEFS=-DVSYNC_TEST_NOBLANK  vsync_setup() acts as if neither
+ *       WaitBOVP() nor the buffer swap showed a vertical blank (fallback)
+ *   make EXTRA_DEFS=-DVSYNC_TEST_SWAP     it acts as if WaitBOVP() did not
+ *       wait, so the two-buffer swap is measured and used (VS_SWAP)
+ * This prints which bitmap is on display. */
+static struct BitMap *vs_test_first = NULL;     /* the screen's bitmap at open */
+static double vs_test_period = 0.0;             /* the refresh WaitBOVP showed */
+
+static void vsync_test_state(const char *when, struct BitMap *first)
+{
+    struct BitMap *shown = video_screen->ViewPort.RasInfo ?
+                           video_screen->ViewPort.RasInfo->BitMap : NULL;
+
+    printf("VSync test, %s: on display $%08lx, the screen's bitmap $%08lx (%s),"
+           " opened with $%08lx (%s), buffers %s, sb_current %d\n",
+           when, (ULONG)shown, (ULONG)video_screen->RastPort.BitMap,
+           shown == video_screen->RastPort.BitMap ? "the same" : "DIFFERENT",
+           (ULONG)first, shown == first ? "on display" : "NOT on display",
+           (sb[0] || sb[1]) ? "allocated" : "freed", sb_current);
+}
+#endif
+
+static void vsync_setup(void)
+{
+    double t[VS_CAL_N + 1];
+    struct EClockVal ev, now;
+    ULONG us_bovp, us_swap = 0;
+    int i;
+#if defined(VSYNC_TEST_NOBLANK) || defined(VSYNC_TEST_SWAP)
+    struct BitMap *first_bm = video_screen->RastPort.BitMap;
+#endif
+
+    vs_mode = VS_NONE;
+    vs_period = 0.0;
+    vs_wait_us = 0;
+    dbl_buf_active = 0;
+    if (!vsync_enabled)
+        return;
+    if (!TimerBase)
+    {
+        printf("Video: VSync needs timer.device, VSync off\n");
+        return;
+    }
+
+    /* 1. Does WaitBOVP() sleep until the vertical blank? */
+    WaitBOVP(&video_screen->ViewPort);
+    vs_efreq = ReadEClock(&ev);
+    t[0] = vs_ticks(&ev);
+    for (i = 1; i <= VS_CAL_N; i++)
+    {
+        WaitBOVP(&video_screen->ViewPort);
+        ReadEClock(&ev);
+        t[i] = vs_ticks(&ev);
+    }
+    us_bovp = vs_us((t[VS_CAL_N] - t[0]) / (double)VS_CAL_N);
+    vs_period = vs_period_from(t, VS_CAL_N);
+#if defined(VSYNC_TEST_NOBLANK) || defined(VSYNC_TEST_SWAP)
+    vs_test_period = vs_period;     /* what WaitBOVP showed */
+    vs_period = 0.0;
+    vs_test_first = first_bm;
+#endif
+    if (vs_period > 0.0)
+    {
+        vs_mode = VS_BLANK;
+        vs_blank = ev;
+        printf("Video: VSync waits for the vertical blank (WaitBOVP), refresh %lu us\n",
+               vs_us(vs_period));
+        return;
+    }
+    /* Why not: without this line a refusal cannot be told from a display
+     * that has no blank to wait for */
+    printf("Video: WaitBOVP shows no steady refresh (%d calls: median %lu us, shortest %lu,"
+           " longest %lu, %d within 10%%)\n",
+           VS_CAL_N, vs_cal_med_us, vs_cal_lo_us, vs_cal_hi_us, vs_cal_good);
+    if (vsync_enabled == 2)
+    {
+        printf("Video: WaitBOVP does not wait for a vertical blank here (%lu us per call),"
+               " VSync off\n", us_bovp);
+        return;
+    }
+
+    /* 2. Does ChangeScreenBuffer() return at the vertical blank?
+     * One reply port shared by both buffers' dbi_SafeMessage.
+     * graphics.doc (AllocDBufInfo): the SafeMessage "is replied to when
+     * it is safe to write to the old BitMap (the one which was installed
+     * when you called ChangeVPBitMap)". Every successful swap replies
+     * exactly one, and with two buffers the old BitMap is always the
+     * next back buffer - so one port + one flag tracks it, whichever
+     * ScreenBuffer's DBufInfo Intuition hands to ChangeVPBitMap. Same
+     * pattern as the SafeToWrite fragment in that autodoc. */
+    sb_safe_port = CreateMsgPort();
+    if (sb_safe_port)
+    {
+        sb[0] = AllocScreenBuffer(video_screen, NULL, SB_SCREEN_BITMAP);
+        sb[1] = AllocScreenBuffer(video_screen, NULL, 0);
+    }
+    if (sb_safe_port && sb[0] && sb[1])
+    {
+        int ok = 1;
+
+        sb[0]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = sb_safe_port;
+        sb[1]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = sb_safe_port;
+        sb_current = 0;
+        sb_safe_to_write = TRUE;
+
+        /* the first swap only lines t[0] up with a blank */
+        for (i = 0; i <= VS_CAL_N && ok; i++)
+        {
+            if (!ChangeScreenBuffer(video_screen, sb[1 - sb_current]))
+            {
+                ok = 0;
+                break;
+            }
+            sb_current = 1 - sb_current;
+            sb_safe_to_write = FALSE;
+            ReadEClock(&ev);
+            t[i] = vs_ticks(&ev);
+            /* the SafeMessage, for at most 100 ms */
+            do
+            {
+                if (GetMsg(sb_safe_port))
+                    sb_safe_to_write = TRUE;
+                else
+                    ReadEClock(&now);
+            } while (!sb_safe_to_write &&
+                     vs_ticks(&now) - t[i] < (double)vs_efreq / 10.0);
+            if (!sb_safe_to_write)
+                ok = 0;
+        }
+        if (ok)
+        {
+            us_swap = vs_us((t[VS_CAL_N] - t[0]) / (double)VS_CAL_N);
+            vs_period = vs_period_from(t, VS_CAL_N);
+        }
+#ifdef VSYNC_TEST_NOBLANK
+        vs_period = 0.0;
+        vsync_test_state("after the swap measurement", first_bm);
+#endif
+#ifdef VSYNC_TEST_SWAP
+        /* Use the swap path whatever the measurement says: with a vertical
+         * blank interrupt one swap takes two to three refreshes, which the
+         * measurement rightly refuses. The refresh is WaitBOVP's. */
+        if (ok && vs_test_period > 0.0)
+            vs_period = vs_test_period;
+        vsync_test_state("after the swap measurement", first_bm);
+#endif
+        if (vs_period > 0.0)
+        {
+            vs_mode = VS_SWAP;
+            dbl_buf_active = 1;
+            vs_blank = ev;
+            printf("Video: VSync swaps two screen buffers at the vertical blank, refresh %lu us\n",
+                   vs_us(vs_period));
+            return;
+        }
+    }
+    vsync_free_buffers(1);
+#ifdef VSYNC_TEST_NOBLANK
+    vsync_test_state("after the fallback", first_bm);
+#endif
+    printf("Video: this display shows no usable vertical blank (WaitBOVP %lu us,"
+           " buffer swap %lu us per call), VSync off\n", us_bovp, us_swap);
+}
+
+/****************************************************************************
  * Initialize video subsystem
  ****************************************************************************/
 int video_cgx_init(int width, int height, int mode)
@@ -629,49 +967,9 @@ int video_cgx_init(int width, int height, int mode)
         }
     }
     
-    /* Set up double buffering if VSync is enabled */
-    dbl_buf_active = 0;
-    if (vsync_enabled)
-    {
-        /* One reply port shared by both buffers' dbi_SafeMessage.
-         * graphics.doc (AllocDBufInfo): the SafeMessage "is replied to when
-         * it is safe to write to the old BitMap (the one which was installed
-         * when you called ChangeVPBitMap)". Every successful swap replies
-         * exactly one, and with two buffers the old BitMap is always the
-         * next back buffer - so one port + one flag tracks it, whichever
-         * ScreenBuffer's DBufInfo Intuition hands to ChangeVPBitMap. Same
-         * pattern as the SafeToWrite fragment in that autodoc. */
-        sb_safe_port = CreateMsgPort();
+    /* VSync: find out how this display reports its vertical blank */
+    vsync_setup();
 
-        if (sb_safe_port)
-        {
-            /* Allocate two screen buffers */
-            sb[0] = AllocScreenBuffer(video_screen, NULL, SB_SCREEN_BITMAP);
-            sb[1] = AllocScreenBuffer(video_screen, NULL, 0);
-
-            if (sb[0] && sb[1])
-            {
-                sb[0]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = sb_safe_port;
-                sb[1]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = sb_safe_port;
-                sb_current = 0;
-                sb_safe_to_write = TRUE;
-                dbl_buf_active = 1;
-                printf("Video: Double-buffered VSync enabled\n");
-            }
-            else
-            {
-                printf("Video: AllocScreenBuffer failed, falling back to single buffer\n");
-                if (sb[0]) { FreeScreenBuffer(video_screen, sb[0]); sb[0] = NULL; }
-                if (sb[1]) { FreeScreenBuffer(video_screen, sb[1]); sb[1] = NULL; }
-                DeleteMsgPort(sb_safe_port); sb_safe_port = NULL;
-            }
-        }
-        else
-        {
-            printf("Video: Cannot create MsgPort for double buffer\n");
-        }
-    }
-    
     /* Open borderless window */
     video_window = OpenWindowTags(NULL,
         WA_CustomScreen, (ULONG)video_screen,
@@ -690,11 +988,8 @@ int video_cgx_init(int width, int height, int mode)
     if (!video_window)
     {
         printf("Video: Cannot open window\n");
-        /* Clean up double buffer resources */
-        if (sb[1]) { FreeScreenBuffer(video_screen, sb[1]); sb[1] = NULL; }
-        if (sb[0]) { FreeScreenBuffer(video_screen, sb[0]); sb[0] = NULL; }
-        if (sb_safe_port) { DeleteMsgPort(sb_safe_port); sb_safe_port = NULL; }
-        dbl_buf_active = 0;
+        vsync_free_buffers(0);
+        vs_mode = VS_NONE;
         CloseScreen(video_screen);
         video_screen = NULL;
         FreeMem(video_buffer, video_pitch * height);
@@ -733,29 +1028,24 @@ void video_cgx_shutdown(void)
         video_window = NULL;
     }
     
-    /* Clean up double-buffer resources before closing screen */
-    if (dbl_buf_active)
-    {
-        /* A swap still in flight replies its SafeMessage to sb_safe_port:
-         * collect it before the port is deleted. */
-        if (!sb_safe_to_write && sb_safe_port)
-        {
-            while (!GetMsg(sb_safe_port))
-                WaitPort(sb_safe_port);
-            sb_safe_to_write = TRUE;
-        }
+    /* Clean up double-buffer resources before closing screen: back on the
+     * bitmap the screen was opened with if that is possible (see
+     * vsync_free_buffers), else freed as they are, which intuition.doc
+     * allows ("Simply FreeScreenBuffer() each buffer ... then close the
+     * screen"). */
+#if defined(VSYNC_TEST_NOBLANK) || defined(VSYNC_TEST_SWAP)
+    if (video_screen && (sb[0] || sb[1]))
+        vsync_test_state("at shutdown, before the buffers are freed", vs_test_first);
+#endif
+    if (!vsync_free_buffers(1))
+        vsync_free_buffers(0);
+#if defined(VSYNC_TEST_NOBLANK) || defined(VSYNC_TEST_SWAP)
+    if (video_screen && vs_test_first)
+        vsync_test_state("at shutdown, after", vs_test_first);
+#endif
+    vs_mode = VS_NONE;
+    vs_period = 0.0;
 
-        /* No ChangeScreenBuffer() back to sb[0] here: intuition.doc says
-         * restoring the original buffer before closing is not required
-         * ("Simply FreeScreenBuffer() each buffer ... then close the
-         * screen"), and that swap would reply a SafeMessage to the port
-         * deleted just below. */
-        if (sb[1]) { FreeScreenBuffer(video_screen, sb[1]); sb[1] = NULL; }
-        if (sb[0]) { FreeScreenBuffer(video_screen, sb[0]); sb[0] = NULL; }
-        if (sb_safe_port) { DeleteMsgPort(sb_safe_port); sb_safe_port = NULL; }
-        dbl_buf_active = 0;
-    }
-    
     if (video_screen)
     {
         CloseScreen(video_screen);
@@ -843,9 +1133,53 @@ void video_cgx_clear(void)
 }
 
 /****************************************************************************
- * Update display from buffer - convert RGB565 to RGBA32 with optional scanlines
+ * VSync, the wait: called when a frame is ready to be put on screen. If the
+ * EClock is still before sync_limit and the display's blank is reached with
+ * WaitBOVP() (VS_BLANK), this sleeps until that blank and returns
+ * VSYNC_SYNCED. Otherwise it returns at once: VSYNC_LATE (too late to
+ * wait), VSYNC_BUSY (on time, VS_SWAP: the buffer swap that follows the
+ * blit does the waiting) or VSYNC_OFF. Used by video_cgx_update() and by
+ * the GPU path (video_gles.c).
  ****************************************************************************/
-void video_cgx_update(int x, int y, int w, int h)
+int video_cgx_vsync_wait(double sync_limit)
+{
+    struct EClockVal ev0;
+    int result;
+
+    if (vs_mode == VS_NONE || !video_screen)
+        return VSYNC_OFF;
+    ReadEClock(&ev0);
+    result = (vs_ticks(&ev0) < sync_limit) ? VSYNC_BUSY : VSYNC_LATE;
+    vs_wait_us = 0;
+    if (vs_mode == VS_BLANK && result == VSYNC_BUSY)
+    {
+#ifdef VSYNC_TEST_EARLY
+        /* test builds: every VSYNC_TEST_EARLY-th wait comes back at once and
+         * still says it waited, like a blank wait that returns early */
+        static ULONG test_n = 0;
+        if (++test_n % VSYNC_TEST_EARLY == 0)
+        {
+            ReadEClock(&vs_blank);
+            return VSYNC_SYNCED;
+        }
+#endif
+        WaitBOVP(&video_screen->ViewPort);
+        ReadEClock(&vs_blank);
+        vs_wait_us = vs_us((double)(ULONG)(vs_blank.ev_lo - ev0.ev_lo));
+        result = VSYNC_SYNCED;
+    }
+    return result;
+}
+
+/****************************************************************************
+ * Update display from buffer - convert RGB565 to RGBA32 with optional scanlines
+ *
+ * VSync: the picture is put on screen at the next vertical blank if the
+ * EClock is still before sync_limit when this is called (0.0: never wait).
+ * A frame that comes later than that is drawn at once: it may tear, but it
+ * costs no time. Returns one of the VSYNC_ results of video_cgx.h.
+ ****************************************************************************/
+int video_cgx_update(int x, int y, int w, int h, double sync_limit)
 {
     APTR handle;
     ULONG fb_bpr;
@@ -853,9 +1187,16 @@ void video_cgx_update(int x, int y, int w, int h)
     int dest_x, dest_y;
     struct BitMap *target_bm;
     int back_buf = 0;
-    
+    int result = VSYNC_OFF;
+    struct EClockVal ev0;
+
     if (!video_initialized || !video_window || !video_buffer)
-        return;
+        return VSYNC_OFF;
+
+    /* VS_BLANK: sleep until the blank, then blit: the copy starts at the
+     * top while the beam is in the blank and is far faster than the
+     * scan-out, so the beam never passes it. */
+    result = video_cgx_vsync_wait(sync_limit);
     
     /* Calculate destination - center on screen */
     if (screen_is_2x)
@@ -873,27 +1214,21 @@ void video_cgx_update(int x, int y, int w, int h)
     
     if (dbl_buf_active)
     {
-        /* Double-buffered path:
-         * Render to back buffer, swap at vblank for tear-free display.
-         * NON-BLOCKING: we never wait for vblank. The timer in main()
-         * controls frame pacing so audio stays at correct speed.
-         * If back buffer isn't safe yet, render to front (minor tear risk). */
+        /* Double-buffered path (VS_SWAP): a frame that is on time is drawn
+         * into the back buffer and swapped in below, where
+         * ChangeScreenBuffer() returns at the vertical blank. A late frame,
+         * or one whose back buffer is not released yet, is drawn into the
+         * buffer on screen instead: no wait, but it may tear. */
         /* Non-blocking check: has the last swap's SafeMessage come back,
          * i.e. is the buffer it replaced (= the back buffer) off-screen? */
         if (!sb_safe_to_write && GetMsg(sb_safe_port))
             sb_safe_to_write = TRUE;
 
-        if (sb_safe_to_write)
-        {
+        if (result == VSYNC_BUSY && sb_safe_to_write)
             back_buf = 1 - sb_current;
-        }
         else
-        {
-            /* Back buffer still being displayed - render to front instead.
-             * This avoids stalling on vblank at cost of possible tear. */
             back_buf = sb_current;
-        }
-        
+
         /* Lock the target buffer's bitmap */
         target_bm = sb[back_buf]->sb_BitMap;
     }
@@ -1098,20 +1433,26 @@ void video_cgx_update(int x, int y, int w, int h)
         
         if (dbl_buf_active && back_buf != sb_current)
         {
-            /* We rendered to the back buffer - swap at next vblank. The
-             * buffer being replaced is unsafe until its SafeMessage returns.
-             * A failed swap (menus etc.) sends no message and changes
-             * nothing, so the back buffer simply stays writable. */
+            /* We rendered to the back buffer - swap; the call returns at
+             * the vertical blank. The buffer being replaced is unsafe until
+             * its SafeMessage returns. A failed swap (menus etc.) sends no
+             * message and changes nothing, so the back buffer simply stays
+             * writable. */
+            ReadEClock(&ev0);
             if (ChangeScreenBuffer(video_screen, sb[back_buf]))
             {
+                ReadEClock(&vs_blank);
+                vs_wait_us = vs_us((double)(ULONG)(vs_blank.ev_lo - ev0.ev_lo));
                 sb_current = back_buf;
                 sb_safe_to_write = FALSE;
+                result = VSYNC_SYNCED;
             }
         }
         /* If back_buf == sb_current, we rendered to the front buffer
-         * (back wasn't safe yet). No swap needed - it's already visible,
-         * though there may be minor tearing on this frame. */
+         * (late frame, or back wasn't safe yet). No swap needed - it's
+         * already visible, though this frame may tear. */
     }
+    return result;
 }
 
 /****************************************************************************
@@ -1163,7 +1504,37 @@ void video_cgx_set_depth(int depth)
  ****************************************************************************/
 void video_cgx_set_vsync(int enable)
 {
-    vsync_enabled = enable ? 1 : 0;
+    /* 2: only the WaitBOVP() way, never two ScreenBuffers (the GPU path
+     * draws into the screen's one bitmap) */
+    vsync_enabled = (enable == 2) ? 2 : (enable ? 1 : 0);
+}
+
+/* The display's refresh period in EClock ticks as measured by
+ * video_cgx_init(), 0.0 when VSync is off or the display shows no usable
+ * vertical blank. */
+double video_cgx_vsync_period(void)
+{
+    return (vs_mode != VS_NONE) ? vs_period : 0.0;
+}
+
+/* EClock (ticks) at the last vertical blank a frame waited for; before the
+ * first frame, the last blank of the measurement in video_cgx_init(). */
+double video_cgx_vsync_blank(void)
+{
+    return vs_ticks(&vs_blank);
+}
+
+/* How long the last video_cgx_update() waited for its blank, in us */
+unsigned long video_cgx_vsync_wait_us(void)
+{
+    return vs_wait_us;
+}
+
+/* How pictures are put on screen at the blank, for the exit summary */
+const char *video_cgx_vsync_method(void)
+{
+    return vs_mode == VS_BLANK ? "WaitBOVP + blit" :
+           vs_mode == VS_SWAP  ? "buffer swap" : "off";
 }
 
 int video_cgx_get_vsync(void)

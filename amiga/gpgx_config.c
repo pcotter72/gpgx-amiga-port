@@ -334,7 +334,7 @@ static void config_save(Object *app_obj, Object *win_obj, const Config *c)
     WR(";\n; scanlines: 0=off 1=subtle 2=medium 3=strong (1-3 open 2x screen)\n");
     snprintf(line, sizeof(line), "scanlines=%d\n",   c->scanlines);            WR(line);
 
-    WR("; vsync: 1=double-buffer tear-free (auto skip disabled when vsync=1)\n");
+    WR("; vsync: 1=show frames at the vertical blank (a late frame is drawn at once)\n");
     snprintf(line, sizeof(line), "vsync=%d\n",       c->vsync);                WR(line);
 
     WR("; frameskip: 0=off/auto 1=skip1/2 2=skip2/3 3=skip3/4\n");
@@ -460,8 +460,8 @@ static Object *create_gui(struct AppData *d, const Config *c)
                         Child, HGroup, GroupFrame,
                             MUIA_FrameTitle, STR("Sync"),
                             Child, d->cm_vsync = CheckMark(c->vsync),
-                            MUIA_ShortHelp, STR("Double-buffer + ChangeScreenBuffer. Eliminates tearing. Auto Skip is disabled when VSync=on."),
-                            Child, Label1(STR("VSync  (tear-free, disables Auto Skip)")),
+                            MUIA_ShortHelp, STR("Frames are shown at the vertical blank: no tearing while the game keeps its frame rate. A late frame is drawn at once."),
+                            Child, Label1(STR("VSync  (frames wait for the vertical blank)")),
                             Child, HSpace(0),
                         End,
 
@@ -477,7 +477,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
 
                         Child, HGroup, GroupFrame,
                             Child, d->cm_autoskip = CheckMark(c->autoskip),
-                            MUIA_ShortHelp, STR("Skip render when frame is over budget. Best for Pi 3. Leave on; automatically ignored when VSync=1."),
+                            MUIA_ShortHelp, STR("Skip render when frame is over budget. Best for Pi 3. Leave on."),
                             Child, Label1(STR("Auto Skip  (dynamic, best for Pi 3)")),
                             Child, HSpace(0),
                         End,

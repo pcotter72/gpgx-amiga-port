@@ -29,8 +29,14 @@ unsigned char *video_cgx_get_buffer(void);
 /* Get the video buffer pitch (bytes per line) */
 int video_cgx_get_pitch(void);
 
-/* Update display from buffer */
-void video_cgx_update(int x, int y, int w, int h);
+/* Update display from buffer. With VSync the picture waits for the next
+ * vertical blank if the EClock (in ticks) is still before sync_limit;
+ * pass 0.0 to never wait. Returns: */
+#define VSYNC_OFF    0  /* no VSync: drawn at once */
+#define VSYNC_SYNCED 1  /* put on screen at the vertical blank */
+#define VSYNC_LATE   2  /* called after sync_limit: drawn at once */
+#define VSYNC_BUSY   3  /* on time, but the buffer swap was not possible */
+int video_cgx_update(int x, int y, int w, int h, double sync_limit);
 
 /* Clear entire screen to black */
 void video_cgx_clear(void);
@@ -48,9 +54,25 @@ void video_cgx_set_depth(int depth);
 /* Get current scanline mode */
 int video_cgx_get_scanlines(void);
 
-/* Enable/disable VSync (reduces tearing, may affect framerate) */
+/* Enable/disable VSync - call before video_cgx_init(), which measures how
+ * the display reports its vertical blank. 2 = only by waiting for the blank
+ * (WaitBOVP), never with two screen buffers: for the GPU path. */
 void video_cgx_set_vsync(int enable);
+
+/* The wait for the blank alone (video_cgx_update() does it itself): sleeps
+ * until the next vertical blank if the EClock is before sync_limit and the
+ * display is reached by waiting. Returns a VSYNC_ result. */
+int video_cgx_vsync_wait(double sync_limit);
 int video_cgx_get_vsync(void);
+
+/* After video_cgx_init(): the display's refresh period in EClock ticks
+ * (0.0: VSync off or no usable vertical blank), the EClock at the last
+ * blank a frame waited for, how long that frame waited (us), and the name
+ * of the method in use. */
+double video_cgx_vsync_period(void);
+double video_cgx_vsync_blank(void);
+unsigned long video_cgx_vsync_wait_us(void);
+const char *video_cgx_vsync_method(void);
 
 /* Force 2x scaling (for Game Gear etc.) - call before video_cgx_init() */
 void video_cgx_set_force_2x(int enable);
