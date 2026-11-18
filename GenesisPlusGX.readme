@@ -2,12 +2,12 @@ Short:    Sega Mega Drive/Genesis, SMS, GG emulator for PiStorm
 Author:   Pedro Cotter
 Uploader: Pedro Cotter
 Type:     misc/emu
-Version:  1.11
+Version:  1.12
 Requires: PiStorm/Emu68, AmigaOS 3.x or CaffeineOS, RTG (P96 or CGX)
 Architecture: m68k-amigaos
 
 
-GenesisPlusGX v1.11 for AmigaOS 3.x / CaffeineOS
+GenesisPlusGX v1.12 for AmigaOS 3.x / CaffeineOS
 =================================================
 
 A Sega Mega Drive / Genesis, Master System, Game Gear and SG-1000
@@ -26,8 +26,9 @@ Requirements
 - Chip RAM for the Paula audio buffers
 - Optional: MUI 3.8 for the launcher
 - Optional: AHI for sound cards
-- Optional, for GPU output: Pi 4 / CM4 and minigl.library 29.1
-  (PiStorm3D). CaffeineOS already includes the library.
+- Optional, for GPU output: Pi 4 / CM4 and ogles2.library 1.4 with
+  its shader compiler. CaffeineOS 9318 already includes both; for
+  other systems see github.com/ladislawv/ogles2pi3/releases.
 
 
 Installation
@@ -56,7 +57,7 @@ Usage
   Video:
     -scanlines      Scanlines, medium (2x mode)
     -scanlines=N    Scanline level 1-3 (1=subtle 2=medium 3=strong)
-    -vsync          Wait for vertical blank (costs speed)
+    -vsync          Show frames at the vertical blank
     -screendepth=N  32 (default) or 16 (Zorro RTG cards)
 
   Audio:
@@ -78,12 +79,11 @@ Usage
     -fps            FPS counter in the top-right corner
     -nodrc          Virtua Racing: DSP interpreter, not recompiler
 
-  GPU output (Pi 4 / CM4, minigl.library 29.1):
-    -gl             Draw through the V3D GPU
+  GPU output (Pi 4 / CM4, ogles2.library 1.4):
+    -gl             Draw through the Pi's GPU
     -nogl           Normal display even if glout=1 in the config
     -gleffect=N     0=sharp 1=smooth 2=scanlines 3=composite blend
     -glsize=WxH     Screen size (default 640x480)
-    -glrgba         Upload RGBA8 instead of RGB565
 
   Examples:
     GenesisPlusGX Roms/Sonic2.md
@@ -156,11 +156,17 @@ Video
   cards). Scanline levels 1-3.
 
   GPU output (glout=1 or -gl, Pi 4 / CM4 only) draws the picture
-  through the V3D GPU with minigl.library 29.1: any screen size,
-  scanlines and a composite blend. CaffeineOS already includes the
-  library; elsewhere install it from the PiStorm3D release. It looks
-  better but is not faster (about 6 ms of CPU per frame), so keep
-  autoskip on. The picture is still a little soft; this is open.
+  through the Pi's GPU with ogles2.library: any screen size, sharp
+  or smooth, scanlines and a composite blend. VSync works with it,
+  except with the monitor tooltype INTERRUPT=NO. It needs the
+  library and its shader compiler. CaffeineOS 9318 (build of
+  07.11.2026 or later) already includes both. Elsewhere
+  install ogles2-<version>.lha from
+  github.com/ladislawv/ogles2pi3/releases (Execute Install-ogles2).
+  Without them the normal display is used and the Shell output says
+  why. Versions up to 1.11 used minigl.library instead. It looks
+  better but is not faster (about 2.4 ms of CPU per drawn frame on a
+  CM4, against 0.5 ms), so keep autoskip on.
 
 
 Formats
@@ -197,6 +203,21 @@ Configuration (defaults)
 
 Changes
 -------
+
+  v1.12 (18.11.2026)
+  - GPU output now goes through ogles2.library (Pi 4 / CM4), which
+    CaffeineOS 9318 includes; minigl.library is no longer used. On
+    a CM4 it costs about 2.4 ms of CPU per drawn frame (Sonic 3).
+    VSync works with it. glout, -gl, -gleffect and -glsize keep
+    their names; -glrgba, -glhalf and -glring are ignored.
+  - VSync reworked: the emulator measures what the RTG driver
+    offers, a frame waits for the blank only while it is on time,
+    and auto frame skip stays on, so heavy games keep their speed.
+  - Launcher 1.8: one GPU output box.
+  - Tested on an A1200 with a PiStorm32-lite + CM4 (Emu68),
+    rtg.library 40.39 and a local test build of VideoCore.card
+    (git:8c4dc84). This code was not run with the shipped driver
+    (git:2016d83), on a Pi 3 or on WinUAE.
 
   v1.11 (25.10.2026)
   - Rebuilt with the fixed amiga6 gcc 6.5.0b. The compiler that
@@ -266,7 +287,7 @@ Credits
                     Charles MacDonald)
   Amiga port:       Pedro Cotter
   Emu68:            Michal Schulz
-  PiStorm3D:        minigl.library authors
+  ogles2.library:   ladislawv
   14-bit method:    Christian Buchner, Henryk Richter
 
 

@@ -7,7 +7,7 @@
     |_|
 
           Sega Genesis / Mega Drive Emulator for AmigaOS 3.x
-                    PiStorm / Emu68 Edition  v1.11
+                    PiStorm / Emu68 Edition  v1.12
           ___________________________________________________
 
 
@@ -55,28 +55,40 @@ CONTENTS
   -------------
   -scanlines        2x scanlines (medium intensity)
   -scanlines=N      Scanline level: 1=subtle  2=medium  3=strong
-  -vsync            WaitTOF vertical sync (may drop to 30fps if too slow)
+  -vsync            Show frames at the vertical blank (a late frame is
+                    drawn at once instead of waiting)
   -screendepth=N    RTG screen depth: 32 (default) or 16 (Zorro RTG cards)
-  -gl               GPU output through PiStorm3D (see below)
+  -gl               GPU output through ogles2.library (see below)
   -nogl             Normal display even if glout=1 in the config
-  -gleffect=N       GPU effect: 0=sharp 1=smooth 2=scanlines 3=composite
-  -glsize=WxH       GPU output screen size (default 640x480)
+  -gleffect=N       GPU output with effect: 0=sharp 1=smooth 2=scanlines
+                    3=composite
+  -glsize=WxH       GPU output with this screen size (default 640x480)
 
   GPU OUTPUT (OPTIONAL, Pi 4 / CM4 only)
   --------------------------------------
-  Draws the picture through the Raspberry Pi's V3D GPU: any screen size,
+  Draws the picture through the Raspberry Pi's GPU: any screen size,
   sharp or smooth scaling, scanlines, and a composite blend that turns
   dithered graphics into the see-through effects games had on a TV.
 
-  Needs minigl.library 29.1 (PiStorm3D) in LIBS:.  CaffeineOS already
-  includes it; on other systems install it from the PiStorm3D release.
-  Also needs all Picasso96 libraries from the same version, BGRA32 as
-  the only enabled 32-bit screen modes, and PiStorm's fast_page_zero
-  option switched off.  Without the library the normal display is used.
+  Needs ogles2.library 1.4 and its shader compiler v3dglslc.  CaffeineOS
+  9318 (build of 07.11.2026 or later) already includes both: nothing to
+  install.  On other systems get ogles2-<version>.lha from
+  github.com/ladislawv/ogles2pi3/releases and run its installer (Execute
+  Install-ogles2).  The first start compiles the emulator's shader
+  (about 2 s) and keeps it in OGLES2Cache: if that assign exists, else
+  in T:.  The library also runs on a Pi 3, but it is far too slow there
+  for this use.
 
-  It improves the picture but is not faster: it costs about 6 ms of
-  CPU per frame.  Keep autoskip=1.  Enable it in the launcher (Video
-  tab) or with -gl.  GPU output always uses VSync off.
+  GPU output always opens a 32-bit screen; screendepth and the normal
+  scanlines setting do not apply (use effect 2).  VSync works with it,
+  except with the monitor tooltype INTERRUPT=NO (then VSync stays off).
+  If something is missing, the Shell output says why and the normal
+  display is used.  Versions up to 1.11 used minigl.library instead:
+  with only that library installed you get the normal display.
+
+  It improves the picture but is not faster: on a CM4 it costs about
+  2.4 ms of CPU per drawn frame against 0.5 ms for the normal display.
+  Keep autoskip=1.  Enable it in the launcher (Video tab) or with -gl.
 
   AUDIO OPTIONS
   -------------
@@ -296,7 +308,7 @@ CONTENTS
   hqpsg=1               PSG quality: 1=band-limited  0=linear (no gain)
   screendepth=32        Screen depth: 32 (PiStorm/VideoCore) or 16
                           (classic Zorro RTG cards - half blit bandwidth)
-  glout=0               GPU output (PiStorm3D): 0=off  1=on
+  glout=0               GPU output (ogles2.library): 0=off  1=on
   gleffect=1            GPU effect: 0=sharp 1=smooth 2=scanlines 3=composite
   glsize=640x480        GPU output screen size
   scanlines=0           0=off  1=subtle  2=medium  3=strong
@@ -355,9 +367,9 @@ CONTENTS
     Use -nosound for maximum speed (Pi 3 / Pi Zero 2W).
     Or try -frameskip=1 to skip every other frame.
     Check fps=1 is set to monitor actual frame rate.
-    With GPU output on, try -nogl: on a CM4 the GPU path cost about
-    6 ms per drawn frame, and four test games drew 52-63% of their
-    frames with it against 91-100% without it.
+    With GPU output on, try -nogl: on a CM4 the GPU path costs about
+    2 ms more per drawn frame, and Virtua Racing drew about 53% of its
+    frames with it against about 64% without it.
 
   VIRTUA RACING
     The SVP chip in the cartridge is emulated by recompiling its DSP
@@ -371,13 +383,14 @@ CONTENTS
 
   WRONG SCREEN SIZE / TEARING
     -scanlines enables 2x scaling mode.  Without -scanlines the output
-    is 1x (320x240).  Try -vsync to reduce tearing (may lower framerate).
+    is 1x (320x240).  Try -vsync to remove tearing.
 
   GPU OUTPUT NOT USED
-    The Shell output says why, e.g. "GL: minigl.library 29.1 not
-    available".  A 29.0 library refuses programs built for 29.1 without
-    any message of its own - update minigl.library.  GPU output also
-    needs a Pi 4 / CM4 (see GPU OUTPUT in section 2).
+    The Shell output says why, in lines starting with "GLES:".
+    "ogles2.library not available": install the library.  "no shader
+    program": install its compiler, LIBS:v3dglslc.  CaffeineOS 9318
+    includes both.  GPU output also needs a Pi 4 / CM4 (see GPU OUTPUT
+    in section 2).
 
   CHEATS NOT WORKING
     Check PROGDIR:Cheats/<romname>.cht exists and the filename matches

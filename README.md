@@ -17,6 +17,8 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
   direct RGB565 row copy on native screens; ideal for classic Zorro RTG cards
 - Optional 2x scaling with configurable scanline effects
 - VSync support for reduced tearing
+- Optional GPU output through `ogles2.library` (Pi 4 / CM4): any screen size,
+  sharp or smooth scaling, scanlines and a composite blend
 - Three audio backends: 8-bit Paula (mono/stereo), 14-bit Paula stereo, AHI
 - Paula stereo output with true left/right channel separation
 - Post-blip volume boost for louder 8-bit output without resampler distortion
@@ -46,6 +48,8 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
 - CyberGraphX or Picasso96 RTG system
 - Paula chip (for 8-bit/14-bit audio) or AHI (for sound card audio)
 - MUI 3.8 or higher for the launcher only (muimaster.library 19)
+- Optional, for GPU output: Pi 4 / CM4 and `ogles2.library` 1.4 with its
+  shader compiler; CaffeineOS 9318 includes both (see GPU Output below)
 
 ### Minimum Hardware
 - **Raspberry Pi CM4 or Pi 4** with PiStorm/PiStorm32 (recommended)
@@ -67,6 +71,10 @@ A port of the Genesis Plus GX emulator for AmigaOS 3.x systems, specifically tar
   amiga6 build (https://github.com/AmigaPorts/amiga-gcc); bebbo's amiga-gcc
   (https://github.com/bebbo/amiga-gcc) also works. Set `TOOLCHAIN=` on the
   make line or edit the Makefile to point at the install.
+- Optional, for GPU output: the ogles2 SDK
+  (`ogles2-<version>-sdk.zip` from
+  https://github.com/ladislawv/ogles2pi3/releases), unpacked as
+  `../ogles2-sdk-1.4-beta1` next to this folder.
 
 ## Building
 
@@ -77,7 +85,7 @@ offer.
 
 ```cmd
 build.bat              &:: Emulator: 68040, all ASM optimizations, ZIP support
-build.bat nogl         &:: The same without PiStorm3D GPU output
+build.bat nogl         &:: The same without GPU output
 build.bat launcher     &:: MUI launcher
 build.bat clean        &:: Clean build files
 ```
@@ -88,8 +96,8 @@ build.bat clean        &:: Clean build files
 make all CPU=68040 LIBC=nix20 USE_ASM_AUDIO=1 USE_ASM_VIDEO=1 USE_ASM_BLIP=1 USE_ZIP=1
 ```
 
-and adds `USE_MINIGL=1` when the PiStorm3D SDK is found in
-`../PiStorm3D/PiStorm3D/SDK`.
+and adds `USE_OGLES2=1` when the ogles2 SDK is found in
+`../ogles2-sdk-1.4-beta1`.
 
 > **Note:** Incremental builds must repeat the same flag set - `make` cannot
 > detect `-D` flag changes in existing object files. `build.bat` cleans by
@@ -105,7 +113,7 @@ and adds `USE_MINIGL=1` when the PiStorm3D SDK is found in
 | `USE_ASM_VIDEO=1` | Assembly-optimized RGB565-to-RGBA blitters |
 | `USE_ASM_BLIP=1` | Assembly-optimized blip_buf resampling |
 | `USE_ZIP=1` | ZIP ROM support (miniz, in-memory extraction) |
-| `USE_MINIGL=1` | PiStorm3D GPU output (`-gl`). `build.bat` adds it automatically when `../PiStorm3D/PiStorm3D/SDK` exists; `build.bat nogl` leaves it out |
+| `USE_OGLES2=1` | GPU output through `ogles2.library` (`-gl`). `build.bat` adds it automatically when `../ogles2-sdk-1.4-beta1/lib/libogles2.a` exists; `build.bat nogl` leaves it out. `OGLES2_SDK=<path>` on the make line selects another SDK folder |
 
 ## Usage
 
@@ -142,37 +150,56 @@ GenesisPlusGX rom.bin -paulafreq=22050 -fps
 |--------|-------------|
 | `-scanlines` | Enable 2x scanlines (medium intensity) |
 | `-scanlines=N` | Scanline level 1-3 (1=subtle, 2=medium, 3=strong) |
-| `-vsync` | Enable VSync via WaitTOF (reduces tearing, may cap at 30fps if too slow) |
+| `-vsync` | Show frames at the vertical blank: no tearing while the game keeps its frame rate. A late frame is drawn at once instead of waiting |
 | `-screendepth=N` | RTG screen depth: 32 (default) or 16 (half the blit bandwidth, for Zorro RTG cards) |
 
-#### GPU Output (PiStorm3D, optional)
+#### GPU Output (ogles2.library, optional)
 
-Builds made with the PiStorm3D SDK can draw the picture through the
-Raspberry Pi 4 / CM4's V3D GPU using `minigl.library`: scaling to any
-screen size, scanlines and a composite blend that turns dither patterns
-into the transparency games expected from a TV. Off by default; enable
-it in the launcher (Video tab) or with `-gl`.
+The picture can be drawn by the GPU of a Raspberry Pi 4 / CM4 through
+`ogles2.library` (OpenGL ES 2.0 for the PiStorm,
+https://github.com/ladislawv/ogles2pi3): scaling to any screen size, sharp
+or smooth, scanlines, and a composite blend that turns dither patterns into
+the transparency games expected from a TV. Off by default; enable it in the
+launcher (Video tab) or with `-gl`.
 
 | Option | Description |
 |--------|-------------|
 | `-gl` | Draw through the GPU (falls back to the normal display if unavailable) |
 | `-nogl` | Normal display even if `glout=1` in the config |
-| `-gleffect=N` | 0=sharp, 1=smooth (default), 2=scanlines, 3=composite blend |
-| `-glsize=WxH` | GPU output screen size (default 640x480; the nearest RTG mode is used) |
-| `-glrgba` | Upload RGBA8 instead of RGB565 (only if colours look wrong) |
+| `-gleffect=N` | Turns GPU output on: 0=sharp, 1=smooth (default), 2=scanlines, 3=composite blend |
+| `-glsize=WxH` | Turns GPU output on, with this screen size (default 640x480; the best matching RTG mode is used) |
 
-Requirements (from the PiStorm3D FAQ): Pi 4 / CM4 / 4B, `minigl.library`
-**29.1** in `LIBS:` (a 29.0 library refuses 29.1 clients silently), all
-Picasso96 libraries from the same version, BGRA32 as the only enabled
-32-bit screen modes, and PiStorm's `fast_page_zero` option off. GPU output
-forces VSync off and a 32-bit screen.
+Requirements:
 
-**It is not faster.** The emulation is unchanged, and handing each frame
-to the GPU costs about 6 ms of CPU per drawn frame (measured on a CM4 with
-minigl.library 29.1: ~5.4 ms texture upload, ~1.7 ms draw at 640x480)
-against ~0.8 ms for the normal display. Larger output sizes add draw time
-(~4.9 ms at 1280x720 with the composite effect). Keep `autoskip=1` on.
-The exit summary prints the measured `GL: upload` / `draw+present` times.
+- A Raspberry Pi 4 / 4B / CM4. The library also runs on a Pi 3, but there
+  one frame's texture upload took 39-57 ms (Pi 3A+, library 1.4), which is
+  far too slow for this use.
+- `ogles2.library` 1.4 and its shader compiler `v3dglslc`. **CaffeineOS 9318
+  (build of 07.11.2026 or later) already includes both, so there is nothing
+  to install.** On other systems, get the `ogles2-<version>.lha` archive from
+  https://github.com/ladislawv/ogles2pi3/releases and run
+  `Execute Install-ogles2`. Tested with 1.4 beta 1 and beta 2 on a CM4.
+- The first start compiles the emulator's shader, about 2 s. The result is
+  kept in `OGLES2Cache:` when that assign exists (CaffeineOS sets it, the
+  ogles2 installer offers it), else in `T:`.
+- A 32-bit RTG screen. GPU output always opens one; `screendepth` and the
+  CPU `scanlines` setting do not apply to it (use `-gleffect=2`). On a BGRA
+  or RGBA screen the GPU draws straight into it; on other 32-bit formats the
+  library copies every frame, and the emulator says so at start.
+
+If anything is missing the emulator prints the reason (lines starting with
+`GLES:`) and uses the normal display. Versions up to 1.11 used PiStorm3D's
+`minigl.library` here instead: with only that library installed, `glout=1`
+now gives the normal display. VSync works with GPU output, except when the
+RTG driver runs with the monitor tooltype `INTERRUPT=NO`: `WaitBOVP` does not
+wait for the blank there, so the emulator says so and runs without VSync.
+
+**It is not faster.** The emulation is unchanged, and GPU output costs more
+CPU time than the normal display: on a CM4 with Sonic 3 about 2.4 ms per
+drawn frame against about 0.5 ms (17.11.2026). A game that is already short
+of time suffers: Virtua Racing drew about 53% of its frames instead of about
+64%, with more audio gaps. Keep `autoskip=1` on. The exit summary prints the
+measured times in its `GLES: per frame` line.
 
 #### Audio Options
 | Option | Description |
@@ -370,7 +397,7 @@ hqpsg=1
 #   Amigas with Zorro RTG cards. Falls back to 32 if no 16-bit mode exists.
 screendepth=32
 
-# GPU output via PiStorm3D minigl.library 29.1 (Pi 4/CM4, GL builds only)
+# GPU output through ogles2.library (Pi 4/CM4)
 #   glout:    1 = on (falls back to the normal display if unavailable)
 #   gleffect: 0=sharp 1=smooth 2=scanlines 3=composite blend
 #   glsize:   output screen size, e.g. 640x480 1280x720 1920x1080
@@ -381,7 +408,7 @@ glsize=640x480
 # Scanlines: 0=off (default), 1=subtle, 2=medium, 3=strong
 scanlines=0
 
-# VSync: 0=off (default), 1=on (may drop to 30fps)
+# VSync: 0=off (default), 1=on (frames wait for the vertical blank)
 vsync=0
 
 # Frame skip: 0=none (default), 1-5=skip N frames
@@ -424,8 +451,16 @@ The A500's OCS/ECS chipset has a 16-bit shared chip RAM bus where CPU and DMA al
 - On A500 PiStorm: Paula DMA and RTG framebuffer writes compete for bus time
 - On A1200 PiStorm32: Much more bandwidth available, less contention
 
-### VSync Limitation
-`-vsync` uses `WaitTOF()` which may not perfectly sync with the VideoCore HDMI scanout on Emu68 RTG. Some tearing may persist. This is a known PiStorm RTG stack limitation.
+### VSync
+`-vsync` / `vsync=1` shows each frame at the display's vertical blank. How the blank is reached depends on the RTG driver, so the emulator measures it when it opens its screen and prints the result:
+
+- **`WaitBOVP + blit`**: `WaitBOVP()` sleeps until the blank, as with the vertical blank interrupt of VideoCore.card 1.5 (measured on a CM4 and on a Pi 3A+). The emulator sleeps until the blank and then copies the frame into the screen bitmap.
+- **`buffer swap`**: `WaitBOVP()` calls in a row return at once but a screen buffer swap returns at the blank, as with the same driver and the monitor tooltype `INTERRUPT=NO`. The frame is drawn into a second screen buffer and swapped in at the blank.
+- **off**: the display shows no usable vertical blank; the emulator behaves as with `vsync=0`.
+
+A frame only waits for the blank while it is on time. A frame that is late is drawn at once (it may tear) and auto skip works as without VSync, so VSync does not slow a game down. When the display's refresh rate is within 0.25% of the game's frame rate the display is the frame clock (a 59.95 Hz display runs a 60 Hz game at 59.95 fps; the audio rate control takes up the difference). Otherwise, e.g. a 50 Hz game on a 60 Hz display, the timer keeps the speed and frames wait for a blank where one comes in time. The exit summary reports how many frames were shown at the blank and how many were late.
+
+Measured on an A1200 with a PiStorm32-lite + CM4 (Emu68), 2026-11-17, VSync on: Sonic 3 99.8% of the frames drawn, no audio dry-outs; Virtua Racing (too heavy for 60 full frames per second) at full speed with 64% of the frames drawn, as without VSync. On an A500 with a PiStorm + Pi 3A+ (Emu68) the same day: a Master System game shows 2639 of 2640 frames at the blank; Sonic 3, which a Pi 3 cannot run at full speed, is never on time, so no frame waits and it runs as without VSync (2406 frames in 44 s, against 1322 with the old VSync). Whether the picture is free of tearing can only be judged on the monitor. Not tested: other RTG drivers (uaegfx), 2x screens.
 
 ## Technical Notes
 
@@ -465,7 +500,7 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - [x] Save states (F5/F8)
 - [x] SRAM battery backup persistence (auto-save/load)
 - [x] Configuration file support with version tracking
-- [x] Double-buffered screens for VSync
+- [x] VSync at the vertical blank (WaitBOVP or buffer swap, whichever the RTG driver supports)
 - [x] 14-bit Paula calibration (Buchner/Richter, loads ENV:CyberSound/SoundDrivers/14Bit_Calibration)
 - [x] blip_read_samples ASM (Genesis FM+PSG resampling path)
 - [x] Paula stereo output (separate L/R 8-bit DMA channels)
@@ -482,6 +517,37 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 - [ ] Sega CD support
 
 ## Changelog
+
+### v1.12 (18.11.2026)
+
+**GPU output:**
+- Now drawn through `ogles2.library` (OpenGL ES 2.0, Pi 4 / CM4), which
+  CaffeineOS 9318 includes together with its shader compiler.
+  `minigl.library` is no longer used. A system with only that library gets
+  the normal display.
+- About 2.4 ms of CPU per drawn frame on a CM4 with Sonic 3 (about 6 ms with
+  minigl.library, 0.5 ms for the normal display). All four effects work, and
+  VSync works with it unless the driver runs with `INTERRUPT=NO`.
+- `glout`, `-gl`, `-nogl`, `-gleffect` and `-glsize` keep their names.
+  `-glrgba`, `-glhalf` and `-glring=` are ignored.
+
+**VSync:**
+- At screen open the emulator measures what the RTG driver offers (wait for
+  the blank with `WaitBOVP`, or swap two screen buffers) and prints it. If
+  neither shows a vertical blank, VSync stays off.
+- A frame waits for the blank only while it is on time. A late frame is drawn
+  at once and auto frame skip stays on, so heavy games keep their speed.
+- When the refresh is within 0.25% of the game's frame rate, the display sets
+  the pace.
+
+**Launcher 1.8:** one GPU output box. It greys Scanlines and Screen Depth;
+VSync stays available.
+
+**Tested** on an Amiga 1200 with a PiStorm32-lite + CM4 (Emu68), rtg.library
+40.39 and `VideoCore.card` git:8c4dc84, a local test build of the driver, in
+interrupt and polling mode, with `ogles2.library` 1.4 beta 1 and beta 2. This
+code was not run with the shipped driver (git:2016d83), on a Pi 3 or on
+WinUAE. Whether the picture tears has to be judged on the monitor.
 
 ### v1.11 (25.10.2026)
 
@@ -697,6 +763,7 @@ instruction checks).
 - Original Genesis Plus by Charles MacDonald
 - bebbo's amiga-gcc toolchain: https://github.com/bebbo/amiga-gcc
 - Emu68 by Michal Schulz
+- ogles2.library by ladislawv: https://github.com/ladislawv/ogles2pi3
 - PiStorm community
 - CaffeineOS distribution
 

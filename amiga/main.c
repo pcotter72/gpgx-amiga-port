@@ -10,8 +10,8 @@
  ****************************************************************************/
 
 /* Version info */
-#define GPGX_VERSION  "1.11"
-#define GPGX_DATE     "25.10.2026"
+#define GPGX_VERSION  "1.12"
+#define GPGX_DATE     "18.11.2026"
 #define GPGX_AUTHOR   "Pedro Cotter"
 
 /* Standard AmigaOS version string - readable by C:Version command */
