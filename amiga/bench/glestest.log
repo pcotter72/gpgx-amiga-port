@@ -1,0 +1,89 @@
+glestest with ogles2.library 1.4 (14.11.2026, 1.4-beta2), 2026-11-17, 640x480 BGRA screen.
+The first A1200 run (an ARGB screen, where ogles2 copies each frame into the
+window: swap 2.7 ms) is not shown.
+
+=== A1200 + PiStorm32-lite + CM4 (Emu68 390e5b6): glestest ===
+window 0,0 640x480 borders 0 0 0 0 flags $00033900; rastport bitmap is the screen's
+screen flags $030f (type $f), in the public screen list: no, cybergfx bitmap -1, pixfmt 12
+glestest: screen 640x480 mode $50031303, surface 640x480, EClock 709379 Hz
+library 1.4; V3D 4.2.14 (PiStorm), 8 QPUs, 64 KB VPM; OpenGL ES 2.0 ogles2.library 1.4
+shader compile + link: 5992 us
+RGB565 upload, nearest, no vsync, 300 frames:
+  per frame: convert 21 us, upload 3262 us, draw 146 us, swap 295 us
+  loop 4405 us per frame (includes ~680 us for the test picture and the clock); with a final glFinish 4407 us per frame
+RGB565 upload, linear, no vsync, 300 frames:
+  per frame: convert 21 us, upload 3248 us, draw 142 us, swap 288 us
+  loop 4382 us per frame (includes ~680 us for the test picture and the clock); with a final glFinish 4384 us per frame
+pixel top left (expect red): R 255 G 0 B 0 A 255
+pixel top right (expect green): R 0 G 255 B 0 A 255
+pixel bottom left (expect blue): R 0 G 0 B 255 A 255
+pixel bottom right (expect white): R 255 G 255 B 255 A 255
+RGBA8 upload with the 565 conversion, nearest, no vsync, 300 frames:
+  per frame: convert 636 us, upload 1831 us, draw 186 us, swap 714 us
+  loop 4052 us per frame (includes ~683 us for the test picture and the clock); with a final glFinish 4054 us per frame
+aglSetParams2(OGLES2_CCT_VSYNC): 1 us per call
+RGB565 upload, nearest, VSYNC, 300 frames:
+  per frame: convert 21 us, upload 3252 us, draw 148 us, swap 12570 us
+  loop 16677 us per frame (includes ~685 us for the test picture and the clock); with a final glFinish 16679 us per frame
+  time between swap returns, 2 ms buckets from 0 (last = 50 ms and more):
+    0 0 0 0 0 0 0 0 299 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+=== A1200 + CM4: glestest V ===
+window 0,0 640x480 borders 0 0 0 0 flags $00033900; rastport bitmap is the screen's
+screen flags $030f (type $f), in the public screen list: no, cybergfx bitmap -1, pixfmt 12
+glestest: screen 640x480 mode $50031303, surface 640x480, EClock 709379 Hz
+library 1.4; V3D 4.2.14 (PiStorm), 8 QPUs, 64 KB VPM; OpenGL ES 2.0 ogles2.library 1.4
+shader compile + link: 16604 us
+variant sub    RGB565: glFinish 21 us, upload 3249 us, draw + swap 402 us; 4382 us per frame in all
+variant finish RGB565: glFinish 34 us, upload 3577 us, draw + swap 846 us; 5144 us per frame in all
+variant npot   RGB565: glFinish 21 us, upload 2505 us, draw + swap 402 us; 3633 us per frame in all
+variant whole  RGB565: glFinish 21 us, upload 1148 us, draw + swap 1754 us; 3633 us per frame in all
+variant pot    RGB565: glFinish 21 us, upload 2014 us, draw + swap 2605 us; 5416 us per frame in all
+variant sub    RGBA8 : glFinish 21 us, upload 1822 us, draw + swap 943 us; 4111 us per frame in all
+variant finish RGBA8 : glFinish 33 us, upload 702 us, draw + swap 855 us; 2960 us per frame in all
+variant npot   RGBA8 : glFinish 21 us, upload 1241 us, draw + swap 923 us; 3498 us per frame in all
+variant whole  RGBA8 : glFinish 21 us, upload 663 us, draw + swap 1433 us; 3436 us per frame in all
+pixel bottom left after the last variant (expect blue): R 0 G 0 B 255 A 255
+
+=== A500 + PiStorm + Pi 3A+ (Emu68 390e5b6): glestest ===
+window 0,0 640x480 borders 0 0 0 0 flags $00033900; rastport bitmap is the screen's
+screen flags $030f (type $f), in the public screen list: no, cybergfx bitmap -1, pixfmt 12
+glestest: screen 640x480 mode $50031303, surface 640x480, EClock 709379 Hz
+library 1.4; VideoCore IV V3D 2.1 (PiStorm); OpenGL ES 2.0 ogles2.library 1.4
+shader compile + link: 2094976 us
+RGB565 upload, nearest, no vsync, 300 frames:
+  per frame: convert 20 us, upload 57252 us, draw 177 us, swap 760 us
+  loop 59030 us per frame (includes ~818 us for the test picture and the clock); with a final glFinish 59034 us per frame
+RGB565 upload, linear, no vsync, 300 frames:
+  per frame: convert 19 us, upload 57048 us, draw 178 us, swap 768 us
+  loop 58841 us per frame (includes ~825 us for the test picture and the clock); with a final glFinish 58844 us per frame
+pixel top left (expect red): R 255 G 0 B 0 A 255
+pixel top right (expect green): R 0 G 255 B 0 A 255
+pixel bottom left (expect blue): R 0 G 0 B 255 A 255
+pixel bottom right (expect white): R 255 G 255 B 255 A 255
+RGBA8 upload with the 565 conversion, nearest, no vsync, 300 frames:
+  per frame: convert 1323 us, upload 39325 us, draw 188 us, swap 837 us
+  loop 42516 us per frame (includes ~841 us for the test picture and the clock); with a final glFinish 42519 us per frame
+aglSetParams2(OGLES2_CCT_VSYNC): 2 us per call
+RGB565 upload, nearest, VSYNC, 300 frames:
+  per frame: convert 20 us, upload 55964 us, draw 188 us, swap 9604 us
+  loop 66606 us per frame (includes ~828 us for the test picture and the clock); with a final glFinish 66609 us per frame
+  time between swap returns, 2 ms buckets from 0 (last = 50 ms and more):
+    0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 299
+
+=== A500 + Pi 3A+: glestest V ===
+window 0,0 640x480 borders 0 0 0 0 flags $00033900; rastport bitmap is the screen's
+screen flags $030f (type $f), in the public screen list: no, cybergfx bitmap -1, pixfmt 12
+glestest: screen 640x480 mode $50031303, surface 640x480, EClock 709379 Hz
+library 1.4; VideoCore IV V3D 2.1 (PiStorm); OpenGL ES 2.0 ogles2.library 1.4
+shader compile + link: 6298 us
+variant sub    RGB565: glFinish 19 us, upload 54169 us, draw + swap 930 us; 55927 us per frame in all
+variant finish RGB565: glFinish 248 us, upload 32875 us, draw + swap 886 us; 35824 us per frame in all
+variant npot   RGB565: glFinish 19 us, upload 30288 us, draw + swap 981 us; 32113 us per frame in all
+variant whole  RGB565: glFinish 20 us, upload 2361 us, draw + swap 29968 us; 33118 us per frame in all
+variant pot    RGB565: glFinish 18 us, upload 4074 us, draw + swap 53520 us; 58755 us per frame in all
+variant sub    RGBA8 : glFinish 17 us, upload 38132 us, draw + swap 1005 us; 41400 us per frame in all
+variant finish RGBA8 : glFinish 46 us, upload 26627 us, draw + swap 942 us; 30353 us per frame in all
+variant npot   RGBA8 : glFinish 17 us, upload 21588 us, draw + swap 994 us; 24747 us per frame in all
+variant whole  RGBA8 : glFinish 17 us, upload 1097 us, draw + swap 22745 us; 26050 us per frame in all
+pixel bottom left after the last variant (expect blue): R 0 G 0 B 255 A 255

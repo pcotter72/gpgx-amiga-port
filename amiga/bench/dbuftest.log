@@ -1,0 +1,177 @@
+dbuftest on the A1200 + PiStorm32-lite + CM4 (Emu68 390e5b6), OS 3.9,
+VideoCore.card 1.5 (23.10.2026) git:2016d83 with the vertical blank
+interrupt (BIF_VBLANKINTERRUPT), 2026-11-17. Command: dbuftest 50011303
+
+dbuftest: mode $50011303, EClock 709379 Hz, intuition 41.0, graphics 40.29
+refresh: 60 x WaitBOVP took 1000807 us
+
+single swaps, dbi_DispMessage used (all times in us from the call)
+  ms after blank   call returns   SafeMessage   DispMessage
+   0                  33350          49901         50008
+   1                  32415          48955         49040
+   2                  31354          47953         48039
+   3                  30349          46939         47025
+   4                  29407          45951         46036
+   5                  28355          44940         45026
+   6                  27352          43929         44017
+   7                  26413          42950         43034
+   8                  25354          41943         42028
+   9                  24349          40899         41179
+  10                   6694          23282         23366
+  11                  22353          38942         39027
+  12                  21408          37952         38037
+  13                  20353          37015         37040
+  14                  19356          35955         36041
+  15                  18469          34951         35036
+  16                  17363          33960         34045
+  17                  33044          49634         49719
+
+single swaps, dbi_DispMessage not used (the emulator's setup) (all times in us from the call)
+  ms after blank   call returns   SafeMessage   DispMessage
+   0                  33890          49930            -2
+   1                  32359          48954            -2
+   2                  31349          47951            -2
+   3                  30464          46945            -2
+   4                  29358          45964            -2
+   5                  11680          28258            -2
+   6                  10675          27270            -2
+   7                  26355          42962            -2
+   8                  25395          41957            -2
+   9                  24348          40942            -2
+  10                   6767          23279            -2
+  11                  22350          38952            -2
+  12                  21367          37959            -2
+  13                  20365          36960            -2
+  14                  19356          35958            -2
+  15                  18356          34961            -2
+  16                    687          17279            -2
+  17                  16363          32940            -2
+
+loop, 2000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        46  swap              0        14625         0
+    1     16796  front
+    2     18851  front
+    3     20884  front
+    4     22951  front
+    5     24983  front
+    6     27016  front
+    7     29049  front
+    8     31082  front
+    9     33114  swap              0        14929     33360
+   10     50146  front
+   11     52179  front
+   12     54212  front
+   13     56244  front
+   14     58280  front
+   15     60313  front
+
+loop, 8000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0        25333         0
+    1     33422  front
+    2     41454  front
+    3     49486  swap              0         9239     33371
+    4     66793  front
+    5     74823  front
+    6     82961  swap              0         9124     33358
+    7    100152  front
+    8    108176  front
+    9    116211  swap              0         9237     33362
+   10    133515  front
+   11    141547  front
+   12    149577  swap              0         9229     33358
+   13    166874  front
+   14    174906  front
+   15    183147  swap              0         9020     33361
+
+loop, 14700 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0         1972         0
+    1     16754  front
+    2     31483  swap              0         3848     33358
+    3     50112  front
+    4     64849  swap              0         3851     33361
+    5     83474  front
+    6     98209  swap              0         3854     33358
+    7    116833  front
+    8    131716  swap              0         3703     33362
+    9    150196  front
+   10    164917  swap              0        20107     50032
+   11    200228  front
+   12    214965  swap              0        20524     50038
+   13    250266  front
+   14    264992  swap              0        20585     50088
+   15    300355  front
+   16    315076  swap              0         3830     33322
+   17    333677  front
+   18    348404  swap              0         3866     33360
+   19    367037  front
+   20    381760  swap              0         3859     33361
+   21    400399  front
+   22    415122  swap              0         3925     33416
+   23    433816  front
+
+loop, 18000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        21  swap              0        32013         0
+    1     50102  swap              0        15292     33575
+    2     83678  swap              0        15086     33155
+    3    116834  swap              0        15240     33358
+    4    150196  swap              0        15282     33362
+    5    183556  swap              0        15499     33573
+    6    217129  swap              0        15075     33145
+    7    250275  swap              0        15283     33360
+    8    283635  swap              0        15282     33361
+    9    316996  swap              0        15285     33358
+   10    350355  swap              0        31950     50031
+   11    400386  swap              0        15347     33415
+   12    433801  swap              0        15242     33317
+   13    467119  swap              0        31963     50028
+   14    517148  swap              0        31970     50043
+   15    567191  swap              0        15289     33370
+
+loopwait, 2000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0        31328         0
+    1     33422  swap          14521        33343     50040
+    2     83461  swap          14516        16707     33374
+    3    116835  swap          14507        33372     50026
+    4    166862  swap          14523        33415     50086
+    5    216948  swap          14474        33377     49997
+    6    266946  swap          14529        33405     50081
+    7    317027  swap          14476        33374     49995
+    8    367023  swap          14526        33410     50084
+    9    417108  swap          14485        33365     49998
+   10    467107  swap          14525        33412     50083
+   11    517190  swap          14483        33368     49998
+
+loopwait, 8000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0        25348         0
+    1     33441  swap           8486        33106     50018
+    2     83460  swap           8532        33909     50582
+    3    134042  swap           7992        33372     49501
+    4    183543  swap           8527        33409     50083
+    5    233626  swap           8486        33372     49997
+    6    283624  swap           8529        16738     33416
+    7    317040  swap           8466        16779     33393
+    8    350434  swap           8427        33409     49988
+    9    400423  swap           8486        16699     33336
+   10    433759  swap           8506        33377     50026
+   11    483786  swap           8446        16608     33413
+
+loopwait, 14700 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0        18637         0
+    1     33419  swap           1835        16742     33417
+    2     66837  swap           1756        16708     33316
+    3    100156  swap           1815        16703     33360
+    4    133513  swap           1815        33413     50071
+    5    183585  swap           1776        16780     33408
+    6    216994  swap           1736        16694     33281
+    7    250275  swap           1815        16703     33360
+    8    283635  swap           1815        16693     33360
+    9    316995  swap           1815        16707     33361
+   10    350357  swap           1815        33372     50031
+   11    400388  swap           1815        33375     50038

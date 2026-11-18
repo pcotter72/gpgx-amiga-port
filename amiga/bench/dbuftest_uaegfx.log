@@ -1,0 +1,178 @@
+dbuftest under WinUAE (this PC), CaffeineOS, uaegfx.card "UAE Graphics Card 0.9
+(24.02.1998)", rtg.library 40.39, gfxcard_hardware_vblank=false, 2026-11-17.
+Command: dbuftest. Neither WaitBOVP() nor ChangeScreenBuffer() waits here, so
+"ms after blank" counts from an arbitrary point (see dbuftest.c).
+
+dbuftest: mode $50011303, EClock 709379 Hz, intuition 41.0, graphics 40.29
+refresh: 60 x WaitBOVP took 57 us
+
+single swaps, dbi_DispMessage used (all times in us from the call)
+  ms after blank   call returns   SafeMessage   DispMessage
+   0                     95             95           129
+   1                     32             32            64
+   2                     32             32            54
+   3                    288            288           288
+   4                    128            160           160
+   5                      0              0             0
+   6                      0              0             0
+   7                      0              0             0
+   8                      0              0             0
+   9                      0              0             0
+  10                      0              0            29
+  11                     32             32            32
+  12                      0              0             0
+  13                      0              0             0
+  14                      0              0             0
+  15                      0              0             0
+  16                      0              0             0
+  17                      0              0             0
+
+single swaps, dbi_DispMessage not used (the emulator's setup) (all times in us from the call)
+  ms after blank   call returns   SafeMessage   DispMessage
+   0                     32             32            -2
+   1                      0              0            -2
+   2                      0              0            -2
+   3                      0              0            -2
+   4                      0              0            -2
+   5                      0              0            -2
+   6                     32             32            -2
+   7                      0              0            -2
+   8                      0              0            -2
+   9                      0              0            -2
+  10                      0              0            -2
+  11                      0              0            -2
+  12                      0              0            -2
+  13                      0              0            -2
+  14                      0              0            -2
+  15                      0              0            -2
+  16                      0              0            -2
+  17                      0              0            -2
+
+loop, 2000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0         0  swap              0            0         0
+    1      2020  swap              0            0      2025
+    2      4045  swap              0            0      2024
+    3      6070  swap              0            0      2024
+    4      8094  swap              0           32      2058
+    5     10184  swap              0           56      2118
+    6     12303  swap              0            0      2056
+    7     14328  swap              0            0      2025
+    8     16353  swap              0            0      2025
+    9     18379  swap              0            0      2022
+   10     20402  swap              0            0      2024
+   11     22426  swap              0            0      2027
+   12     24453  swap              0            0      2024
+   13     26478  swap              0            0      2024
+   14     28502  swap              0            0      2022
+   15     30525  swap              0            0      2025
+
+loop, 8000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0         0  swap              0            0         0
+    1      8001  swap              0            0      8002
+    2     16004  swap              0            0      8004
+    3     24008  swap              0            0      8001
+    4     32009  swap              0            0      8002
+    5     40012  swap              0            0      8001
+    6     48013  swap              0            0      8002
+    7     56016  swap              0           32      8036
+    8     64053  swap              0            0      8002
+    9     72055  swap              0            0      8004
+   10     80060  swap              0            0      8001
+   11     88061  swap              0            0      8002
+   12     96064  swap              0            0      8002
+   13    104067  swap              0            0      8004
+   14    112071  swap              0            0      8002
+   15    120074  swap              0            0      8002
+
+loop, 14700 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0         0  swap              0            0         0
+    1     14718  swap              0            0     14721
+    2     29439  swap              0            0     14719
+    3     44159  swap              0            0     14718
+    4     58878  swap              0           33     14752
+    5     73630  swap              0            0     14719
+    6     88350  swap              0            0     14719
+    7    103070  swap              0            0     14724
+    8    117794  swap              0            0     14715
+    9    132510  swap              0            0     14721
+   10    147231  swap              0            0     14719
+   11    161951  swap              0            0     14718
+   12    176670  swap              0            0     14719
+   13    191389  swap              0           32     14784
+   14    206174  swap              0            0     14722
+   15    220897  swap              0            0     14717
+   16    235614  swap              0            0     14718
+   17    250333  swap              0            0     14719
+   18    265052  swap              0            0     14721
+   19    279774  swap              0            0     14718
+   20    294492  swap              0            0     14721
+   21    309214  swap              0            0     14719
+   22    323934  swap              0            0     14722
+   23    338656  swap              0            0     14717
+
+loop, 18000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        16  swap              0            0         0
+    1     18029  swap              0            0     18029
+    2     36059  swap              0            0     18000
+    3     54059  swap              0            0     18027
+    4     72086  swap              0            0     18000
+    5     90087  swap              0            0     18029
+    6    108117  swap              0            0     18028
+    7    126145  swap              0            0     18000
+    8    144145  swap              0            0     18029
+    9    162175  swap              0            0     18029
+   10    180205  swap              0            0     18000
+   11    198205  swap              0            0     18027
+   12    216232  swap              0            0     18000
+   13    234233  swap              0            0     18029
+   14    252262  swap              0            0     18029
+   15    270292  swap              0            0     18032
+
+loopwait, 2000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        18  swap              0            0         0
+    1      2049  swap              0           64      2087
+    2      4130  swap              0            0      2024
+    3      6154  swap              0            0      2025
+    4      8180  swap              0            0      2024
+    5     10204  swap              0           14      2058
+    6     12262  swap              0            0      2024
+    7     14287  swap              0            0      2024
+    8     16311  swap              0            0      2025
+    9     18337  swap              0            0      2022
+   10     20360  swap              0            0      2025
+   11     22385  swap              0            0      2024
+
+loopwait, 8000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0         0  swap              0            0         0
+    1      8005  swap              0            0      8032
+    2     16037  swap              0            0      8004
+    3     24042  swap              0            0      8001
+    4     32051  swap              0            0      8035
+    5     40078  swap              0            0      8001
+    6     48080  swap              0            0      8004
+    7     56084  swap              0           32      8033
+    8     64118  swap              0            0      8002
+    9     72120  swap              0            0      8002
+   10     80123  swap              0            0      8001
+   11     88124  swap              0            0      8007
+
+loopwait, 14700 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0         0  swap              0            0         0
+    1     14719  swap              0            0     14718
+    2     29438  swap              0            0     14719
+    3     44158  swap              0            0     14719
+    4     58878  swap              0            0     14721
+    5     73599  swap              0            0     14718
+    6     88318  swap              0           31     14753
+    7    103071  swap              0            0     14721
+    8    117793  swap              0            0     14719
+    9    132513  swap              0            0     14718
+   10    147231  swap              0            0     14719
+   11    161951  swap              0            0     14719

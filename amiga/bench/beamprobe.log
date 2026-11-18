@@ -1,0 +1,31 @@
+beamprobe on the A1200 + PiStorm32-lite + CM4 (Emu68 390e5b6), OS 3.9,
+VideoCore.card 1.5 (23.10.2026) git:2016d83 with the vertical blank
+interrupt, rtg.library 40.39, Workbench screen in front, 2026-11-17.
+
+$ beamprobe
+beamprobe: 4000000 samples in 391281 us (97 ns each), 27532 runs
+highest value 1200; an ordinary line (values 100-199) is held 13 us on average
+around the end of the picture (value:us held), first frames:
+  1196:13 1197:13 1198:13 1199:13 1200:109 0:1 1:1 2:0 3:1 4:1
+  1196:13 1197:13 1198:13 1199:13 1200:109 0:1 1:0 2:1 3:0 4:0
+  1196:13 1197:13 1198:13 1199:13 1200:109 0:1 1:1 2:1 3:1 4:0
+  1196:13 1197:13 1198:13 1199:13 1200:109 0:0 1:1 2:0 3:1 4:1
+
+$ beamprobe POLL 1200 300          (nothing else running)
+beamprobe POLL: 300 waits for the value 1200, average 13835 us, longest 30301 us
+  2 ms buckets from 0 (last = 50 ms and more):
+    0 0 0 0 0 1 295 0 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0 0 0 0
+
+$ Run >NIL: beamprobe TICK 15      (WaitTOF loop: the interrupt fires in every frame)
+$ beamprobe POLL 1200 300
+beamprobe POLL: 300 waits for the value 1200, average 13822 us, longest 30312 us
+  2 ms buckets from 0 (last = 50 ms and more):
+    0 0 1 0 0 0 295 0 0 0 0 0 0 0 0 4 0 0 0 0 0 0 0 0 0 0
+beamprobe TICK: 900 WaitTOF calls in 15 s
+
+Reading: the driver's poll waits for the value 1200, which is held for
+109 us in each frame. One poll takes one refresh in 295 of 300 cases and two
+in 4 of 300, with or without the vertical blank interrupt firing. So the
+interrupt does not make a single poll miss; the two-refresh buffer swap has
+another cause (see STATUS-2026-11-17.md: rtg.library waits twice per swap
+when the driver has the interrupt but no GetVSyncState).

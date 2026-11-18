@@ -1,0 +1,186 @@
+dbuftest on the A1200 + PiStorm32-lite + CM4 (Emu68 390e5b6), OS 3.9,
+VideoCore.card 1.5 (23.10.2026) git:2016d83 with the monitor tooltype
+INTERRUPT=NO (no vertical blank interrupt: rtg.library polls), 2026-11-17.
+Command: dbuftest 50011303
+Note: in this mode 60 WaitBOVP() calls in a row take 91 us (the refresh
+line), so that line does not show the refresh. The reason, read from
+rtg.library and the driver later (rtg-analysis notes, beamprobe.log): the
+polling WaitBOVP waits for a line counter value that is held ~109 us, and
+calls in a row all fall inside that window. In the single swap tables each
+test starts right after the swap before it returned, i.e. at a blank, so
+"ms after blank" is right there even though WaitBOVP did not do the lining
+up.
+
+dbuftest: mode $50011303, EClock 709379 Hz, intuition 41.0, graphics 40.29
+refresh: 60 x WaitBOVP took 91 us
+
+single swaps, dbi_DispMessage used (all times in us from the call)
+  ms after blank   call returns   SafeMessage   DispMessage
+   0                  33406          33465         33520
+   1                  32374          32395         32421
+   2                  14788          14808         14834
+   3                  13781          13800         13826
+   4                  12794          12814         12839
+   5                  11786          11806         11831
+   6                  10784          10803         10829
+   7                   9794           9814          9839
+   8                   8783           8803          8828
+   9                  24355          24376         24403
+  10                   6787           6807          6832
+  11                   5781           5800          5826
+  12                   4781           4801          4826
+  13                   3792           3811          3837
+  14                   2796           2816          2841
+  15                   1798           1818          1843
+  16                    790            810           835
+  17                  16465          16484         16510
+
+single swaps, dbi_DispMessage not used (the emulator's setup) (all times in us from the call)
+  ms after blank   call returns   SafeMessage   DispMessage
+   0                  16677          16716            -2
+   1                  15781          15801            -2
+   2                  14774          14794            -2
+   3                  13854          13871            -2
+   4                  12771          12791            -2
+   5                  11773          11793            -2
+   6                  10768          10788            -2
+   7                   9781           9801            -2
+   8                   8773           8793            -2
+   9                   7768           7788            -2
+  10                   6780           6800            -2
+  11                   5655           5675            -2
+  12                   4770           4790            -2
+  13                   3783           3803            -2
+  14                  19352          19373            -2
+  15                   1777           1797            -2
+  16                    769            789            -2
+  17                  16456          16476            -2
+
+loop, 2000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        45  swap              0        14715         0
+    1     16888  swap              0        14545     16677
+    2     33557  swap              0        14567     16675
+    3     50203  swap              0        14604     16682
+    4     66885  swap              0        14598     16676
+    5     83561  swap              0        14650     16728
+    6    100290  swap              0        14556     16634
+    7    116924  swap              0        14600     16677
+    8    133602  swap              0        14604     16682
+    9    150284  swap              0        31180     33258
+   10    183543  swap              0        14698     16779
+   11    200323  swap              0        14612     16683
+   12    217006  swap              0        14609     16679
+   13    233686  swap              0        14605     16679
+   14    250365  swap              0        14607     16680
+   15    267046  swap              0        14604     16680
+
+loop, 8000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0         8755         0
+    1     16849  swap              0         8600     16679
+    2     33529  swap              0         8596     16680
+    3     50210  swap              0         8611     16680
+    4     66890  swap              0         8604     16677
+    5     83568  swap              0         8603     16679
+    6    100248  swap              0         8613     16682
+    7    116930  swap              0         8596     16676
+    8    133606  swap              0         8611     16680
+    9    150287  swap              0         8601     16680
+   10    166968  swap              0         8600     16679
+   11    183647  swap              0         8603     16679
+   12    200327  swap              0         8611     16683
+   13    217010  swap              0         8610     16677
+   14    233688  swap              0         8604     16679
+   15    250368  swap              0         8606     16682
+
+loop, 14700 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0         2060         0
+    1     16844  swap              0         1907     16683
+    2     33527  swap              0         1908     16679
+    3     50207  swap              0         1910     16686
+    4     66893  swap              0        18479     33254
+    5    100148  swap              0         2010     16779
+    6    116927  swap              0        18496     33261
+    7    150189  swap              0         2001     16780
+    8    166969  swap              0        18592     33360
+    9    200330  swap              0         1900     16679
+   10    217009  swap              0         1903     16680
+   11    233690  swap              0         1901     16679
+   12    250369  swap              0         1915     16680
+   13    267050  swap              0        18486     33260
+   14    300310  swap              0         1998     16779
+   15    317090  swap              0         1898     16680
+   16    333770  swap              0         2970     33365
+   17    367136  swap              0         1904     16883
+   18    384020  swap              0         1707     16472
+   19    400492  swap              0         1911     16677
+   20    417170  swap              0         1914     16682
+   21    433852  swap              0         1907     16679
+   22    450532  swap              0         1908     16679
+   23    467211  swap              0         1912     16679
+
+loop, 18000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0        15553         0
+    1     33651  swap              0        15166     33238
+    2     66889  swap              0        15158     33358
+    3    100248  swap              0        15334     33402
+    4    133650  swap              0        15249     33317
+    5    166968  swap              0        15282     33360
+    6    200328  swap              0        15337     33403
+    7    233732  swap              0        15237     33317
+    8    267050  swap              0        15289     33360
+    9    300410  swap              0        31899     49981
+   10    350392  swap              0        15354     33420
+   11    383813  swap              0        15295     33362
+   12    417176  swap              0        14886     33357
+   13    450533  swap              0        15290     33360
+   14    483893  swap              0        15280     33358
+   15    517252  swap              0        15323     33406
+
+loopwait, 2000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0        14766         0
+    1     16848  swap             49        14495     16680
+    2     33526  swap             19        14562     16679
+    3     50205  swap             19        14595     16724
+    4     66930  swap             19        31099     33216
+    5    100146  swap             19        14667     16782
+    6    116929  swap             19        14560     16677
+    7    133606  swap             19        14562     16679
+    8    150286  swap             19        14609     16727
+    9    167013  swap             19        14516     16634
+   10    183855  swap             19        14354     16679
+   11    200327  swap             19        14573     16680
+
+loopwait, 8000 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        19  swap              0         8747         0
+    1     16845  swap             19         8576     16683
+    2     33529  swap             19         8565     16677
+    3     50207  swap             19         8555     16680
+    4     66888  swap             19         8569     16679
+    5     83567  swap             19         8562     16679
+    6    100246  swap             19         8565     16680
+    7    116927  swap             19         8174     16682
+    8    133609  swap             19         8559     16676
+    9    150286  swap             19         8575     16682
+   10    166968  swap             19         8569     16680
+   11    183649  swap             19         8569     16677
+
+loopwait, 14700 us of work per frame (us)
+  frame    start  action  waited-for-safe   in-call  since-last-swap-return
+    0        21  swap              0        18638         0
+    1     33432  swap             19         1959     16775
+    2     50205  swap             19         1866     16680
+    3     66886  swap             19         1869     16680
+    4     83567  swap             19         1872     16679
+    5    100246  swap             19         1872     16682
+    6    116929  swap             19         1872     16679
+    7    133608  swap             19         1867     16679
+    8    150287  swap             19         1863     16679
+    9    166967  swap             19         1873     16687
+   10    183654  swap             19         1867     16673
+   11    200328  swap             19         1863     16682
