@@ -550,8 +550,9 @@ Shell also started the game selected in the launcher.
 interrupt and polling mode, with `ogles2.library` 1.4 beta 1 and beta 2. With
 the shipped driver (git:2016d83) VSync was run with the normal display
 (`-vsync -nogl`, WaitBOVP mode) in Musha Aleste, Streets of Rage 2 and Thunder
-Force II: no tearing seen. GPU output, 2x and scanline screens and polling mode
-were not run with that driver. This code was not run on a Pi 3 or on WinUAE.
+Force II, and with GPU output (`-vsync -gl`, smooth) in Thunder Force II: no
+tearing seen. 2x and scanline screens, the GPU's scanline and composite effects
+and polling mode were not run with that driver. This code was not run on a Pi 3 or on WinUAE.
 Whether the picture tears has to be judged on the monitor.
 
 ### v1.11 (25.10.2026)
