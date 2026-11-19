@@ -541,7 +541,9 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
   the pace.
 
 **Launcher 1.8:** one GPU output box. It greys Scanlines and Screen Depth;
-VSync stays available.
+VSync stays available. The pad now works only while the launcher window is
+active: before, fire pressed in a game started from a Shell also started the
+game selected in the launcher.
 
 **Tested** on an Amiga 1200 with a PiStorm32-lite + CM4 (Emu68), rtg.library
 40.39 and `VideoCore.card` git:8c4dc84, a local test build of the driver, in

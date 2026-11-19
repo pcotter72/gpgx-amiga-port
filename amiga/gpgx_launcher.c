@@ -1744,6 +1744,8 @@ int main(void)
     /* ---- Joystick edge detection / auto-repeat ---- */
     ULONG joy_prev   = 0;
     int   joy_repeat = 0;   /* 100ms ticks held */
+    ULONG joy_hold   = 0;   /* buttons held when the pad was armed */
+    BOOL  joy_armed  = FALSE; /* FALSE: window inactive or a game just ran */
 
     memset(&d, 0, sizeof(d));
 
@@ -1927,6 +1929,7 @@ int main(void)
             case ID_LAUNCH:
                 /* running stays TRUE - event loop continues after game exits */
                 launch_game(&d, &c, progdir, cmd, sizeof(cmd));
+                joy_armed = FALSE;  /* pad buttons held at game exit: ignore */
                 break;
 
             case ID_SAVE:
@@ -1958,16 +1961,41 @@ int main(void)
         if (running && timer_io && LowLevelBase &&
             CheckIO((struct IORequest *)timer_io))
         {
-            ULONG joy, joy_type, cur_dir;
+            ULONG joy, joy_type, cur_dir, pressed;
             LONG  active, next;
+            struct Window *win = NULL;
 
             WaitIO((struct IORequest *)timer_io);
 
-            joy      = ReadJoyPort(1);          /* port 1 = joystick port */
-            joy_type = joy & JP_TYPE_MASK;
+            /* Only the active launcher window takes pad input. The port is
+             * not even read otherwise: ReadJoyPort() is single-threaded
+             * system-wide (others get JP_TYPE_NOTAVAIL, lowlevel.doc), and
+             * a game started from a Shell while the launcher is open reads
+             * the same pad. MUIA_Window_Window is NULL while closed. */
+            get(d.window, MUIA_Window_Window, &win);
+            if (!win || !(win->Flags & WFLG_WINDOWACTIVE)) {
+                joy_armed = FALSE;
+                joy = 0;
+                joy_type = JP_TYPE_NOTAVAIL;
+            } else {
+                joy      = ReadJoyPort(1);      /* port 1 = joystick port */
+                joy_type = joy & JP_TYPE_MASK;
+            }
 
             if (joy_type == JP_TYPE_JOYSTK || joy_type == JP_TYPE_GAMECTLR) {
-                ULONG pressed = joy & ~joy_prev; /* newly pressed bits */
+                if (!joy_armed) {
+                    /* Window just became active or a game just ended:
+                     * buttons and directions held now were meant for
+                     * something else and count only after a release. */
+                    joy_hold   = joy & ~JP_TYPE_MASK;
+                    joy_prev   = 0;
+                    joy_repeat = 0;
+                    joy_armed  = TRUE;
+                }
+                joy_hold &= joy;                /* released: counts again */
+                joy &= ~joy_hold;
+
+                pressed = joy & ~joy_prev;      /* newly pressed bits */
                 cur_dir = joy & (JPF_JOY_UP | JPF_JOY_DOWN);
 
                 /* Auto-repeat: move on press, then 500ms delay, 200ms repeat */
@@ -1993,11 +2021,15 @@ int main(void)
                 }
 
                 /* Fire button: launch on press (not on hold) */
-                if (pressed & (JPF_BUTTON_RED | JPF_BUTTON_BLUE))
+                if (pressed & (JPF_BUTTON_RED | JPF_BUTTON_BLUE)) {
                     launch_game(&d, &c, progdir, cmd, sizeof(cmd));
-            }
+                    joy_armed = FALSE;
+                }
 
-            joy_prev = joy;
+                /* Only valid reads: a JP_TYPE_NOTAVAIL tick must not make
+                 * a held button look newly pressed on the next one. */
+                joy_prev = joy;
+            }
 
             /* Restart timer */
             timer_io->tr_node.io_Command = TR_ADDREQUEST;

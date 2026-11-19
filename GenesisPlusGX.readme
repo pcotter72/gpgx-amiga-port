@@ -213,7 +213,9 @@ Changes
   - VSync reworked: the emulator measures what the RTG driver
     offers, a frame waits for the blank only while it is on time,
     and auto frame skip stays on, so heavy games keep their speed.
-  - Launcher 1.8: one GPU output box.
+  - Launcher 1.8: one GPU output box. The pad works only while the
+    launcher window is active (fire in a game started from a Shell
+    also started the game selected in the launcher).
   - Tested on an A1200 with a PiStorm32-lite + CM4 (Emu68),
     rtg.library 40.39 and a local test build of VideoCore.card
     (git:8c4dc84). This code was not run with the shipped driver
