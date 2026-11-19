@@ -1000,6 +1000,7 @@ static int cheats_save(void)
 
 struct AppData {
     Object *app, *window;
+    Object *reg;            /* register group; page 0 = Games */
     /* Games tab */
     Object *list_roms, *lv_roms, *str_filter, *tx_count;
     Object *bt_scan, *bt_start, *cy_sort;
@@ -1070,7 +1071,7 @@ static Object *create_gui(struct AppData *d, const Config *c)
 
             WindowContents, VGroup,
 
-                Child, RegisterGroup(page_titles),
+                Child, d->reg = RegisterGroup(page_titles),
 
                     /* ======== GAMES ======== */
                     Child, VGroup,
@@ -1731,7 +1732,7 @@ int main(void)
 {
     struct AppData d;
     Config c;
-    ULONG signals, id;
+    ULONG signals = 0, id;  /* NewInput wants Wait()'s result or 0 */
     BOOL running;
     char progdir[200];
     char cmd[1024];
@@ -1964,6 +1965,7 @@ int main(void)
             ULONG joy, joy_type, cur_dir, pressed;
             LONG  active, next;
             struct Window *win = NULL;
+            ULONG page = 0;
 
             WaitIO((struct IORequest *)timer_io);
 
@@ -1973,7 +1975,11 @@ int main(void)
              * a game started from a Shell while the launcher is open reads
              * the same pad. MUIA_Window_Window is NULL while closed. */
             get(d.window, MUIA_Window_Window, &win);
-            if (!win || !(win->Flags & WFLG_WINDOWACTIVE)) {
+            /* Only on the Games page, too: elsewhere (e.g. Cheats) up/down
+             * would change the selected game behind the user's back. A
+             * failed get() counts as "not Games". */
+            if (!win || !(win->Flags & WFLG_WINDOWACTIVE) ||
+                !get(d.reg, MUIA_Group_ActivePage, &page) || page != 0) {
                 joy_armed = FALSE;
                 joy = 0;
                 joy_type = JP_TYPE_NOTAVAIL;
@@ -2038,8 +2044,10 @@ int main(void)
             SendIO((struct IORequest *)timer_io);
         }
 
-        if (running)
-            Wait(signals | timer_sig);
+        /* MUI_Application.doc NewInput idiom: signals == 0 means MUI has
+         * more input queued, so go round again without waiting. */
+        if (running && signals)
+            signals = Wait(signals | timer_sig);
     }
 
     /* ---- Cleanup timer ---- */

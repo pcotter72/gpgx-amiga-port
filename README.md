@@ -542,14 +542,17 @@ The port uses standard AmigaOS system calls (Intuition, CyberGraphX, AHI, timer.
 
 **Launcher 1.8:** one GPU output box. It greys Scanlines and Screen Depth;
 VSync stays available. The pad now works only while the launcher window is
-active: before, fire pressed in a game started from a Shell also started the
-game selected in the launcher.
+active and shows the Games page: before, fire pressed in a game started from a
+Shell also started the game selected in the launcher.
 
 **Tested** on an Amiga 1200 with a PiStorm32-lite + CM4 (Emu68), rtg.library
 40.39 and `VideoCore.card` git:8c4dc84, a local test build of the driver, in
-interrupt and polling mode, with `ogles2.library` 1.4 beta 1 and beta 2. This
-code was not run with the shipped driver (git:2016d83), on a Pi 3 or on
-WinUAE. Whether the picture tears has to be judged on the monitor.
+interrupt and polling mode, with `ogles2.library` 1.4 beta 1 and beta 2. With
+the shipped driver (git:2016d83) VSync was run with the normal display
+(`-vsync -nogl`, WaitBOVP mode) in Musha Aleste, Streets of Rage 2 and Thunder
+Force II: no tearing seen. GPU output, 2x and scanline screens and polling mode
+were not run with that driver. This code was not run on a Pi 3 or on WinUAE.
+Whether the picture tears has to be judged on the monitor.
 
 ### v1.11 (25.10.2026)
 

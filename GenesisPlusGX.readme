@@ -214,12 +214,16 @@ Changes
     offers, a frame waits for the blank only while it is on time,
     and auto frame skip stays on, so heavy games keep their speed.
   - Launcher 1.8: one GPU output box. The pad works only while the
-    launcher window is active (fire in a game started from a Shell
-    also started the game selected in the launcher).
+    launcher window is active and shows the Games page (fire in a
+    game started from a Shell also started the game selected in the
+    launcher).
   - Tested on an A1200 with a PiStorm32-lite + CM4 (Emu68),
     rtg.library 40.39 and a local test build of VideoCore.card
-    (git:8c4dc84). This code was not run with the shipped driver
-    (git:2016d83), on a Pi 3 or on WinUAE.
+    (git:8c4dc84). With the shipped driver (git:2016d83) VSync was
+    run with the normal display (WaitBOVP) in Musha Aleste, Streets
+    of Rage 2 and Thunder Force II: no tearing seen; GPU output, 2x
+    and scanline screens and polling mode were not run with it.
+    This code was not run on a Pi 3 or on WinUAE.
 
   v1.11 (25.10.2026)
   - Rebuilt with the fixed amiga6 gcc 6.5.0b. The compiler that
