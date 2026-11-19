@@ -221,10 +221,10 @@ Changes
     rtg.library 40.39 and a local test build of VideoCore.card
     (git:8c4dc84). With the shipped driver (git:2016d83) VSync was
     run with the normal display (WaitBOVP) in Musha Aleste, Streets
-    of Rage 2 and Thunder Force II, and with GPU output (smooth) in
-    Thunder Force II: no tearing seen. 2x and scanline screens, the
-    GPU's scanline and composite effects and polling mode were not
-    run with it.
+    of Rage 2 and Thunder Force II, and in Thunder Force II on the
+    2x scanline screen and with GPU output (smooth, scanlines,
+    composite): no tearing seen. The GPU's sharp effect, 16-bit
+    screens and polling mode were not run with it.
     This code was not run on a Pi 3 or on WinUAE.
 
   v1.11 (25.10.2026)
